@@ -1172,7 +1172,7 @@ class SubEngine:
         warm: False (default) = every point from a random vector; 'mixed' (also True) = from the previous ground state
         plus half its norm of a random vector; 'guess' = from the previous ground state alone (fastest, but it follows
         the previous level through a crossing with a level of another hidden quantum number, e.g. total spin, and then
-        returns wrong energies: 0.49 off in the test of LOG section 63).
+        returns wrong energies: 0.49 off in one test).
         Returns a list of dicts."""
         from edc_hubbard_sym import ground_state_vector
         from edc_scan import start_vector

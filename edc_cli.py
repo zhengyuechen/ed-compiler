@@ -41,6 +41,12 @@
     measure S Q=1,1                      # spin structure factor S(Q) and M^2(Q) = S/(N+2) of the ground state, Q averaged
                                          # over its star; Q Cartesian in units of pi, or Qr=q1,q2 in units of b1, b2
 
+    # kagome torus with inversion as its only point operation: one product through three layouts of the vector
+    lattice kagome a1=3,0 a2=0,4
+    couplings J1=1
+    sector Sz=0 k=0,0 irrep=X0 flip=+1   # this sector only
+    solve engine=layout3 device=gpu      # time_product=1 adds the time of one product
+
     # DMRG on a cylinder; the cylinder is cut into layers closed under the translation around it, a layer is one site
     # of the chain and every bond carries S_z and the momentum
     lattice cylinder Lx=8 Ly=6           # square: open along x, periodic along y; a ring of Ly spins is a layer
@@ -48,7 +54,7 @@
                                          # with layers of Ly spins between them; N = Ly (3 Lx - 1)
     couplings J1=1 J2=0.5                # J2: the diagonals between neighbouring rings (square); Delta=: XXZ
     sector Sz=0 k=0                      # any S_z; k around the cylinder in units of pi (k = 2 K / Ly, e.g. k=1/3)
-    solve method=dmrg D=512              # sweeps=9 tol=1e-6 labels=sz,k | sz  (edc_dmrg.py; generated C kernel, CPU)
+    solve method=dmrg D=512              # sweeps=9 tol=3e-5 labels=sz,k | sz  (edc_dmrg.py; generated C kernel, CPU)
 
     # Fermi-Hubbard on a kagome cluster, every symmetry sector, ground state
     lattice kagome a1=2,0 a2=0,2
@@ -335,12 +341,40 @@ def run_rows(spec):
     return out
 
 
+def run_layout3(spec):
+    """engine=layout3: one product through three layouts of the vector (edc_layout3).  Kagome clusters whose point group is
+    inversion only, nearest-neighbour coupling, the sector S_z = 0, k = 0, trivial irrep, spin-flip even."""
+    import edc_layout3
+    kind, cl = cluster(spec); sec, sol, cp = spec['sector'], spec['solve'], spec['couplings']
+    if kind != 'kagome' or spec['model'][0] != 'heisenberg':
+        raise ValueError('engine=layout3: lattice kagome, Heisenberg model')
+    if (any(abs(v) > 0 for k, v in cp.items() if k not in ('J1', 'Delta')) or abs(cp.get('Delta', 1.0)-1.0) > 1e-15
+            or spec['bonds'] or spec['measure'] or spec['scan'] or spec['sector_all']):
+        raise ValueError('engine=layout3: nearest-neighbour coupling J1 only; no anisotropy, extra bonds, scans or measurements yet')
+    k = [float(v) for v in sec.get('k', '0,0').split(',')]
+    if (abs(float(sec.get('Sz', 0))) > 1e-12 or any(abs(v) > 1e-12 for v in k) or sec.get('irrep', 'X0') != 'X0'
+            or int(sec.get('flip', 0)) != 1 or int(sol.get('levels', 1)) != 1):
+        raise ValueError('engine=layout3: sector Sz=0 k=0,0 irrep=X0 flip=+1, lowest level only')
+    t0 = time.perf_counter(); device = sol.get('device', 'cpu')
+    e = edc_layout3.Layout3Engine(cl, J=cp.get('J1', 1.0), device=device)
+    E, it, t_solve = e.ground_energy(tol=float(sol.get('tol', 1e-12)))
+    out = dict(lattice=kind, N=cl.N, model='heisenberg', device=device, engine='layout3', nup=cl.N//2, k_over_pi=k, irrep='X0', flip=1,
+               dim=e.dim, expanded_entries=e.expanded, group_order=e.group_order, real=True, E=E, iterations=it,
+               setup_seconds=e.setup_seconds, solve_seconds=t_solve)
+    if 'time_product' in sol:
+        out['product_seconds'] = e.time_product()
+    out['seconds'] = time.perf_counter()-t0
+    return out
+
+
 def run(spec):
     if spec['solve'].get('method') == 'dmrg':
         import edc_dmrg
         return edc_dmrg.run_spec(spec)
     if spec['solve'].get('engine') == 'rows':
         return run_rows(spec)
+    if spec['solve'].get('engine') == 'layout3':
+        return run_layout3(spec)
     kind, cl = cluster(spec)
     mname, mkv = spec['model']
     sec, sol = spec['sector'], spec['solve']

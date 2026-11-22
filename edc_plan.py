@@ -5,7 +5,7 @@ The fastest way to run a product depends on the machine and on the sector: the n
 cores is not always helped by one thread per core), the GPU launch block, how many vectors share one pass over the stored
 connectivity.  plan() times the candidates on the engine itself, with its own tables, sets the best and returns the table;
 the result is cached per machine and sector.  Profile splits a run into products and everything else, so that a slow step
-outside the products is seen (LOG section 61: an inner product ten times slower than the matrix product went unnoticed).
+outside the products is seen (an inner product ten times slower than the matrix product went unnoticed).
 """
 import os, sys, json, time, ctypes, hashlib, platform, subprocess
 import numpy as np

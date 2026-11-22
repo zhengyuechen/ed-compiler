@@ -1,0 +1,6 @@
+# kagome cylinder YC6 with second-neighbour coupling: lowest state of the 1/9 magnetisation sector
+# (54 spins, S_z = 3) with zero momentum around the cylinder
+lattice cylinder cell=kagome Lx=6 Ly=3 ends=cell
+couplings J1=1 J2=0.05
+sector Sz=3 k=0
+solve method=dmrg D=400

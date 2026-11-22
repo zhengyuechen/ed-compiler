@@ -21,7 +21,7 @@ What no rule on one Lanczos run can exclude: a level whose weight in the start v
 appeared yet.  `confirm` buys margin against that (an emerging copy of a level interrupts the count, so large values
 may never be reached when many levels are asked for); a second run from another seed is the real check.
 
-Against "a Ritz value that has not moved for 200 steps" (LOG section 76, kagome 27, nev = 4, 66 blocks, reference ARPACK):
+Against "a Ritz value that has not moved for 200 steps" (kagome 27, nev = 4, 66 blocks, reference ARPACK):
 1.9 times fewer steps, largest error 7e-12 against 1e-9."""
 import math
 import numpy as np

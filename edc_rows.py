@@ -7,7 +7,7 @@ y-translation and the mirrors are phased permutations of labels (orbit represent
 in sectors with a definite mirror parity, real.
 
 Status of this file (2026-11-22): the set-up (web-move tables, representatives, sector matrix) is the verified Python
-logic of explore/row_web_local.py wrapped in build_sector(); the product y = C x is a generated C/OpenMP or CUDA kernel;
+logic of the prototype wrapped in build_sector(); the product y = C x is a generated C/OpenMP or CUDA kernel;
 the eigenvalue step is a restarted Arnoldi iteration written once for numpy and cupy (the basis is not orthogonal, so
 the sector matrix is not symmetric).  Nearest-neighbour Heisenberg model, square (and triangular) tori, even row length.
 """

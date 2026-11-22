@@ -549,7 +549,7 @@ def lanczos(eng, tol=1e-12, maxit=1000, seed=42, nev=1, stable=3, small=400, _co
     rtol (nev = 1): also require the residual of the lowest Ritz pair, beta_m |s_m| (last component of the lowest
     eigenvector of the tridiagonal matrix), below rtol max(1, |E|).  The energy criterion alone stops too early when
     the next level of the sector is close: the energy then moves by less than tol per step long before the vector
-    is converged (LOG section 76: residual 5e-6 with a gap of 1e-3).
+    is converged (seen once: residual 5e-6 with a gap of 1e-3).
     etol (nev = 1): also require the energy-error estimate 2 r^2 / (theta_1 - theta_0) of that pair below
     etol max(1, |E|) (r the residual above, theta the two lowest Ritz values): the same condition as rtol, but only as
     strict as the gap of the sector demands."""

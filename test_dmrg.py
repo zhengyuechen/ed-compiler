@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DMRG engine (edc_dmrg.py) against exact energies of small cylinders, square and kagome, in several momentum and
 magnetisation sectors, and through the language.  Exact values: product basis with a momentum projector
-(edc_dmrg.exact_levels; the square ones were first obtained with explore/dmrg/exact_k.py)."""
+(edc_dmrg.exact_levels; the square ones were first obtained with an independent script)."""
 import json, subprocess, sys, os
 import edc_dmrg as ed
 
@@ -42,6 +42,19 @@ for nup in (17, 16):
 print(f'{lat.name}: one and two flipped spins, three starts each, every momentum: exact')
 rows = ed.magnetisation(model, 200, sz2=(0, 6, 16, 18))
 assert abs(min(rows[1][1].values())-(-6.23677714)) < 1e-7 and abs(min(rows[2][1].values())-4.5) < 1e-8 and abs(min(rows[3][1].values())-7.5) < 1e-9
+# second neighbours on kagome: some join two chain rings across a layer of single spins (couplings two layers apart)
+import math
+for Lx, c, tail, J2, Delta, nups in ((3, 2, False, 0.2, 1.0, (8, 6)), (2, 3, True, -0.15, 0.8, (7, 3)), (2, 4, False, 0.2, 1.0, (10,))):
+    lat = ed.kagome_cylinder(Lx, c, tail=tail, J2=J2); gb = lat.global_bonds(); pos = [(l*math.sqrt(3)/4, float(y)) for l, ys in enumerate(lat.layers) for y in ys]
+    near = lambda d2: {(a, b) for a in range(lat.N) for b in range(a+1, lat.N)
+                       if any(abs((pos[a][0]-pos[b][0])**2 + (pos[a][1]-pos[b][1]+w)**2 - d2) < 1e-9 for w in (-c, 0, c))}
+    assert {(min(a, b), max(a, b)) for a, b, J in gb if J == 1.0} == near(0.25) and {(min(a, b), max(a, b)) for a, b, J in gb if J == J2} == near(0.75)
+    model = ed.Model(lat, Delta=Delta); worst = 0.0
+    for nup in nups:
+        for K, e in ed.exact_levels(gb, lat.N, nup, Delta, tperm=lat.translation(), c=c).items():
+            worst = max(worst, abs(ed.ground_state(model, 400, nup=nup, K=K)[0]-e))
+    print(f'{lat.name}, Delta = {Delta}: bonds equal to the geometric first and second neighbours; largest error over the sectors {worst:.1e}')
+    assert worst < 2e-8
 here = os.path.dirname(os.path.abspath(__file__))
 for name, exact, allow in (('dmrg_cylinder_6x4_k.edc', -11.0792516158, 2e-5), ('dmrg_kagome_yc6.edc', None, None)):
     out = json.loads(subprocess.check_output([sys.executable, os.path.join(here, 'edc_cli.py'), os.path.join(here, 'examples', name)]))

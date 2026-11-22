@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Time one product with a stored ring-of-rows sector matrix (real CSR saved by explore/row_web_local.py, env SAVE) in a
-minimal C/OpenMP kernel compiled like the project's kernels, for a clean reading against D15 at a fixed thread count.
+"""Time one product with a stored ring-of-rows sector matrix (real CSR saved beforehand, env SAVE) in a
+minimal C/OpenMP kernel compiled like the project's kernels, for a clean reading at a fixed thread count.
 Usage: rows_spmv.py matrix.npz [threads ...]"""
 import sys, os, time, ctypes, subprocess, json, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

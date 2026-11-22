@@ -19,6 +19,7 @@ iteration with it.
 | `edc_measure.py` | spin structure factor S(Q), M²(Q) of a sector's ground state on any lattice (Cartesian positions, star of Q) |
 | `edc_cli.py`, `examples/` | plain-text model description (`lattice`, `model`, `couplings`, `bond`, `sector [all]`, `solve`, `measure`) for all lattices and engines |
 | `edc_family.py` | H_A + λ H_B at many λ in one pass (parameter scans) |
+| `edc_layout3.py` | kagome, nearest-neighbour Heisenberg, sector k = 0 / trivial irrep / spin-flip even on clusters with inversion only: one product through three layouts of the vector (the spectator sublattice of each bond family is fixed first); `solve engine=layout3`; 2.3 times the on-the-fly sub engine on one H100 at 36 sites |
 | `edc_hubbard.py`, `edc_hubbard_gpu.py` | Fermi-Hubbard with fixed N↑, N↓, species-product kernel |
 | `edc_hubbard_sym.py` | Fermi-Hubbard with translations, point group (1D irreps), any momentum and spin flip; representatives found species by species; one generated source for C/OpenMP and CUDA |
 | `test_*.py`, `check_dispersion.py` | correctness checks (exact values, dense diagonalisation, independent projected Lanczos) |
@@ -28,7 +29,7 @@ iteration with it.
 ## Running
 
 macOS: Python 3.12 with numpy and scipy; clang from the Command Line Tools; the OpenMP runtime in `vendor/` is loaded
-automatically. Linux (RIS): gcc with `-fopenmp`; CuPy (`cupy-cuda12x[ctk]`) for the GPU engines. Compiled libraries are
+automatically. Linux: gcc with `-fopenmp`; CuPy (`cupy-cuda12x[ctk]`) for the GPU engines. Compiled libraries are
 cached in `~/.cache/edc` (override with `EDC_CACHE`).
 
 ```bash

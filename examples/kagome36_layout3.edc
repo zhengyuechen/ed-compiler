@@ -1,0 +1,6 @@
+# Kagome Heisenberg, 3 x 4 cells (36 sites, inversion is the only point operation), fully symmetric sector,
+# one product through three layouts of the vector (edc_layout3); E0 = -15.81433400 (same value from the sub engine in this sector)
+lattice kagome a1=3,0 a2=0,4
+couplings J1=1
+sector Sz=0 k=0,0 irrep=X0 flip=+1
+solve engine=layout3 device=gpu time_product=1

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""DMRG in the ED compiler: the problem is stated in the EDC language, the kernels are generated for it (D28, D29).
+"""DMRG in the ED compiler: the problem is stated in the EDC language, the kernels are generated for it.
 
     lattice cylinder Lx=8 Ly=6           # square lattice, open along x, periodic along y
     couplings J1=1 J2=0.5                # J2 on the diagonals (square only); Delta=0.8: XXZ anisotropy
     sector Sz=0 k=0                      # k: momentum around the cylinder in units of pi (k = 2 K / Ly, K integer)
     solve method=dmrg D=512              # sweeps=9 (after two warm-up sweeps at D/4, D/2)  labels=sz,k (default) | sz   seed=0
-                                         # tol=1e-6: relative residual of the eigensolver on one layer
+                                         # tol=3e-5: relative residual of the eigensolver on one layer (a thirtieth
+                                         # of it in the closing sweeps)
 
     lattice cylinder cell=kagome Lx=6 Ly=3   # kagome, YC geometry: Ly unit cells around (circumference 2 Ly sites),
-    couplings J1=1 Delta=1                   # Lx chain rings along the cylinder; N = Ly (3 Lx - 1) spins
+    couplings J1=1 J2=0.1 Delta=1            # Lx chain rings along the cylinder; N = Ly (3 Lx - 1) spins; J2: second neighbours
                                              # ends=cell: one more layer after the last ring, N = 3 Ly Lx
     sector Sz=3 k=2/3                        # any S_z (a magnetisation sector), any momentum 2 K / Ly
                                              # Sz=all: every S_z >= 0 and every momentum (magnetisation curve)
@@ -56,13 +57,15 @@ class Lattice:
         for ys in self.layers:
             pos = {y: i for i, y in enumerate(ys)}
             self.T.append([pos[(y+1) % c] for y in ys]); self.P.append([pos[(self.y0-y) % c] for y in ys])
-        self.intra = [[] for _ in self.layers]; self.inter = [[] for _ in self.layers[:-1]]
+        self.intra = [[] for _ in self.layers]; self.inter = [[] for _ in self.layers[:-1]]; self.far = [[] for _ in self.layers[:-2]]
         for la, a, lb, b, J in bonds:
             if la == lb:
                 self.intra[la].append((min(a, b), max(a, b), float(J)))
-            else:
-                assert lb == la+1, 'bonds reach the next layer at most'
+            elif lb == la+1:
                 self.inter[la].append((a, b, float(J)))
+            else:
+                assert lb == la+2, 'bonds reach two layers ahead at most'
+                self.far[la].append((a, b, float(J)))
         for l in range(len(self.layers)):                              # translation and reflection must map bonds to bonds
             for perm in (self.T[l], self.P[l]):
                 S0 = sorted(self.intra[l]); S1 = sorted((min(perm[a], perm[b]), max(perm[a], perm[b]), J) for a, b, J in self.intra[l])
@@ -70,6 +73,9 @@ class Lattice:
             if l+1 < len(self.layers):
                 for pa, pb in ((self.T[l], self.T[l+1]), (self.P[l], self.P[l+1])):
                     assert sorted(self.inter[l]) == sorted((pa[a], pb[b], J) for a, b, J in self.inter[l]), 'bonds between layers not symmetric'
+            if l+2 < len(self.layers):
+                for pa, pb in ((self.T[l], self.T[l+2]), (self.P[l], self.P[l+2])):
+                    assert sorted(self.far[l]) == sorted((pa[a], pb[b], J) for a, b, J in self.far[l]), 'bonds two layers apart not symmetric'
 
     def global_bonds(self):
         out = []
@@ -77,6 +83,8 @@ class Lattice:
             out += [(int(self.offset[l]+a), int(self.offset[l]+b), J) for a, b, J in bl]
         for l, bl in enumerate(self.inter):
             out += [(int(self.offset[l]+a), int(self.offset[l+1]+b), J) for a, b, J in bl]
+        for l, bl in enumerate(self.far):
+            out += [(int(self.offset[l]+a), int(self.offset[l+2]+b), J) for a, b, J in bl]
         return out
 
     def translation(self):
@@ -96,7 +104,7 @@ def square_cylinder(Lx, Ly, J1=1.0, J2=0.0):
     return Lattice(Ly, layers, bonds, 0, f'square cylinder {Lx} x {Ly}')
 
 
-def kagome_cylinder(Lx, c, J1=1.0, tail=False):
+def kagome_cylinder(Lx, c, J1=1.0, tail=False, J2=0.0):
     """YC kagome cylinder with c >= 2 unit cells around: Lx chain rings of 2c spins at y = n/2, and between two rings
     a layer of c spins at y = i + 1/4 (after even rings) or i + 3/4 (after odd rings), each bonded to the ring spins at
     y -+ 1/4 on both sides.  N = c (3 Lx - 1).  tail=True adds one more layer of c spins after the last ring, so that
@@ -112,7 +120,13 @@ def kagome_cylinder(Lx, c, J1=1.0, tail=False):
                     n = int(((i+off+dy) % c)*2); bonds.append((lr, n, lr+1, i, J1))
                     if j+1 < Lx:
                         bonds.append((lr+1, i, lr+2, n, J1))
-    return Lattice(c, layers, bonds, Fraction(1, 2), f'kagome cylinder YC{2*c}, {Lx} rings' + (' and a last layer' if tail else ''))
+                    if J2:                                             # second neighbours of a single-layer spin: ring spins at y -+ 3/4
+                        n2 = int(((i+off+3*dy) % c)*2); bonds.append((lr, n2, lr+1, i, J2))
+                        if j+1 < Lx:
+                            bonds.append((lr+1, i, lr+2, n2, J2))
+        if J2 and j+1 < Lx:                                            # and ring to ring at the same y, across the single layer
+            bonds += [(lr, n, lr+2, n, J2) for n in range(2*c)]
+    return Lattice(c, layers, bonds, Fraction(1, 2), f'kagome cylinder YC{2*c}, {Lx} rings' + (' and a last layer' if tail else '') + (f', J2 = {J2}' if J2 else ''))
 
 
 def kagome_cylinder_cells(Lx, c, J1=1.0):
@@ -171,6 +185,7 @@ class SiteKind:
         self.n = n = len(ys); self.S = d = 1 << n; self.c = c; codes = np.arange(d, dtype=np.int64)
         assert n <= 10, 'layers of more than 10 spins need a sparse construction of the layer basis (not written)'
         self.cell = [int(math.floor(y)) for y in ys]; self.sub = [y - math.floor(y) for y in ys]
+        self.psub = {self.sub[a]: self.sub[Pp[a]] for a in range(n)}  # sublattice -> its image under the reflection
 
         def lift(perm):
             out = np.zeros(d, dtype=np.int64)
@@ -242,11 +257,16 @@ class BondKind:
     """Coupling of two neighbouring layers as sum_t cf_t X_t (x) Y_t, each term with definite label shifts."""
     def __init__(self, KL, KR, inter, c, Delta, mod):
         subsL, subsR = sorted(set(KL.sub)), sorted(set(KR.sub)); right = len(subsR) <= len(subsL)
+        K0 = KR if right else KL; groups = []; seen = set()
+        for sb in (subsR if right else subsL):
+            if sb not in seen:
+                seen |= {sb, K0.psub[sb]}; groups.append((sb,) if K0.psub[sb] == sb else (sb, K0.psub[sb]))
         self.cf = []; self.dm = []; self.dk = []; self.X = []; self.Y = []
         for comp, cbar, cf, dm in (('z', 'z', Delta, 0), ('+', '-', 0.5, 1), ('-', '+', 0.5, -1)):
             if cf == 0:
                 continue
             for q in range(c):
+                pair = {}
                 for sub in (subsR if right else subsL):
                     X = sp.csr_matrix((KL.S, KL.S), dtype=complex); Y = sp.csr_matrix((KR.S, KR.S), dtype=complex)
                     if right:                                          # spins b of one sublattice of the right layer
@@ -265,6 +285,12 @@ class BondKind:
                             for a2, b, J in inter:
                                 if a2 == a:
                                     Y = Y + (np.conj(f)*J)*KR.op(cbar, b)
+                    pair[sub] = (X, Y)
+                combos = []
+                for g in groups:                                       # two sublattices that the reflection exchanges: sum and difference
+                    combos += [pair[g[0]]] if len(g) == 1 else [((pair[g[0]][0] + sg*pair[g[1]][0])/math.sqrt(2), (pair[g[0]][1] + sg*pair[g[1]][1])/math.sqrt(2))
+                                                                for sg in (1, -1)]
+                for X, Y in combos:
                     xo, xi, xv = KL.transform(X, dm, q); yo, yi, yv = KR.transform(Y, -dm, -q)
                     if len(xv) == 0 or len(yv) == 0:
                         continue
@@ -289,12 +315,52 @@ class Model:
                 bk[key] = len(self.bkinds)
                 self.bkinds.append(BondKind(self.kinds[key[0]], self.kinds[key[1]], lat.inter[l], c, Delta, self.mod))
             self.bond_kind.append(bk[key])
+        self.fkinds = []; self.far_kind = []; fk = {}                  # couplings two layers apart
+        for l in range(self.n-2):
+            if not lat.far[l]:
+                self.far_kind.append(-1); continue
+            key = (self.site_kind[l], self.site_kind[l+2], tuple(sorted(lat.far[l])))
+            if key not in fk:
+                fk[key] = len(self.fkinds); self.fkinds.append(BondKind(self.kinds[key[0]], self.kinds[key[1]], lat.far[l], c, Delta, self.mod))
+            self.far_kind.append(fk[key])
+        # the stack a layer contracts with its left environment: terms of the bond to its left (operator Y on this layer)
+        # followed by terms that started two layers back; and with its right environment: terms of the bond to its right
+        # (operator X on this layer) followed by terms that end two layers ahead
+        self.lstacks = []; self.rstacks = []; self.site_ls = []; self.site_rs = []; ls = {}; rs = {}
+        for r in range(self.n):
+            nb = self.bond_kind[r-1] if r > 0 else -1; fb = self.far_kind[r-2] if r >= 2 else -1
+            self.site_ls.append(self._stack(ls, self.lstacks, (self.site_kind[r], nb, fb), 'Y', far_scale=False))
+            nb = self.bond_kind[r] if r < self.n-1 else -1; fb = self.far_kind[r] if r <= self.n-3 else -1
+            self.site_rs.append(self._stack(rs, self.rstacks, (self.site_kind[r], nb, fb), 'X', far_scale=True))
+
+    def _stack(self, index, stacks, key, which, far_scale):
+        _, nb, fb = key
+        if nb < 0 and fb < 0:
+            return -1
+        if key not in index:
+            N = self.bkinds[nb] if nb >= 0 else None; Fk = self.fkinds[fb] if fb >= 0 else None; st = type('Stack', (), {})()
+            parts = [k for k in (N, Fk) if k is not None]
+            st.NN = N.NT if N else 0; st.NT = sum(k.NT for k in parts); st.ops = sum((list(getattr(k, which)) for k in parts), [])
+            st.dm = np.concatenate([k.dm for k in parts]); st.dk = np.concatenate([k.dk for k in parts])
+            st.scale = (list(N.cf) if N else []) + ([float(x) for x in Fk.cf] if (Fk and far_scale) else [1.0]*(Fk.NT if Fk else 0))
+            index[key] = len(stacks); stacks.append(st)
+        return index[key]
+
+    def lstack(self, b):                                               # stack kinds of bond b (between layers b-1 and b)
+        return self.lstacks[self.site_ls[b]] if 0 < b < self.n and self.site_ls[b] >= 0 else None
+
+    def rstack(self, b):
+        return self.rstacks[self.site_rs[b-1]] if 0 < b < self.n and self.site_rs[b-1] >= 0 else None
+
+    def through(self, r):                                              # terms that pass layer r untouched: far kind of layers r-1, r+1
+        return self.fkinds[self.far_kind[r-1]] if 1 <= r <= self.n-2 and self.far_kind[r-1] >= 0 else None
 
 
 # ------------------------------------------------------------------ the generated library
 C_BODY = r'''
-typedef struct { int nL, nR, S, sk, bl, br, NTL, NTR; const int *DL, *DR, *cst, *rst, *cw, *rh, *ul, *C, *R; const int64_t *Moff, *Uoff;
-                 const int *srcL, *wstL, *WL, *srcR, *wstR, *WR; const int64_t *LHoff, *GLoff, *RHoff, *GRoff; } plan_t;
+typedef struct { int nL, nR, S, sk, bl, br, NTL, NTR, NTLq, NTRp, NNL, NNR, NTH; const int *DL, *DR, *cst, *rst, *cw, *rh, *ul, *mr, *C, *R;
+                 const int64_t *Moff, *Uoff; const int *srcL, *wstL, *WL, *srcR, *wstR, *WR, *srcLq, *wstLq, *WLq, *srcRp, *wstRp, *WRp;
+                 const int64_t *LHoff, *GLoff, *RHoff, *GRoff, *Qoff, *Poff; const double *cfth; } plan_t;
 typedef void (*dgemm_t)(const char*, const char*, const int*, const int*, const int*, const double*, const double*, const int*,
                         const double*, const int*, const double*, double*, const int*);
 static dgemm_t dgemm_f; static double n_gemm = 0.0, n_slab = 0.0;
@@ -315,7 +381,7 @@ static void gemm(int ta, int tb, int m, int n, int k, double alpha, const double
 /* S^L of target left label it: (WL x C_it); block t = M_src K_t (the operator Y_t of the left bond moves column slabs) */
 static void sl_build(const plan_t *p, int it, const double *M, double *Sb, int scale) {
   int S = p->S, NT = p->NTL, Ct = p->C[it], W = p->WL[it];
-  const int *YP = YPb[p->bl], *YO = YOb[p->bl], *YI = YIb[p->bl]; const double *YV = YVb[p->bl], *CF = CFb[p->bl];
+  const int *YP = YPb[p->bl], *YO = YOb[p->bl], *YI = YIb[p->bl]; const double *YV = YVb[p->bl], *CF = YFb[p->bl];
   memset(Sb, 0, sizeof(double)*(size_t)W*Ct);
   for (int t = 0; t < NT; t++) {
     int is = p->srcL[it*NT+t]; if (is < 0) continue;
@@ -338,7 +404,7 @@ static void sl_build(const plan_t *p, int it, const double *M, double *Sb, int s
 /* S^R of target right label jt: (R_jt x WR); block t = K_t U_src (the operator X_t of the right bond moves row slabs) */
 static void sr_build(const plan_t *p, int jt, const double *U, double *Sb, int scale) {
   int S = p->S, NT = p->NTR, Rt = p->R[jt], W = p->WR[jt];
-  const int *XP = XPb[p->br], *XO = XOb[p->br], *XI = XIb[p->br]; const double *XV = XVb[p->br], *CF = CFb[p->br];
+  const int *XP = XPb[p->br], *XO = XOb[p->br], *XI = XIb[p->br]; const double *XV = XVb[p->br], *CF = XFb[p->br];
   memset(Sb, 0, sizeof(double)*(size_t)Rt*W);
   for (int t = 0; t < NT; t++) {
     int js = p->srcR[jt*NT+t]; if (js < 0) continue;
@@ -356,6 +422,60 @@ static void sr_build(const plan_t *p, int jt, const double *U, double *Sb, int s
       n_slab += (double)h*Djs;
     }
   }
+}
+
+/* A coupling between the layers on both sides passes this layer untouched: LX_t (x) 1 (x) RY_t.
+   S^th of target right label jt: (R_jt x WTH); block t, row slab s = LX_t . (row slab s of U_src).  LX_t comes from QL, the
+   projected right stack of the left bond (its far columns); the block layout is that of the far rows of PR. */
+static void th_build(const plan_t *p, int jt, const double *QL, const double *U, double *Sb, int WTH, int wn) {
+  int S = p->S, Rt = p->R[jt];
+  memset(Sb, 0, sizeof(double)*(size_t)Rt*WTH);
+  for (int t = 0; t < p->NTH; t++) {
+    int js = p->srcRp[jt*p->NTRp + p->NNR + t]; if (js < 0) continue;
+    int Djs = p->DR[js]; if (!Djs) continue;
+    int w0 = p->wstRp[jt*p->NTRp + p->NNR + t] - wn;
+    for (int s = 0; s < S; s++) {
+      int rt = p->rst[jt*S+s], rs = p->rst[js*S+s]; if (rt < 0 || rs < 0) continue;
+      int it = p->ul[jt*S+s], is = p->ul[js*S+s];
+      if (p->srcLq[it*p->NTLq + p->NNL + t] != is) continue;
+      gemm(0, 0, p->DL[it], Djs, p->DL[is], 1.0, QL + p->Qoff[it] + p->wstLq[it*p->NTLq + p->NNL + t], p->WLq[it],
+           U + p->Uoff[js] + (int64_t)rs*Djs, Djs, 0.0, Sb + (int64_t)rt*WTH + w0, WTH);
+    }
+  }
+}
+/* the mirror image for the right environment: S^thL of target left label it: (WTHq x C_it);
+   block t, column slab s = cf_t (column slab s of M_src) . RY_t^T, with RY_t^T from the far rows of PR */
+static void thl_build(const plan_t *p, int it, const double *PR, const double *M, double *Sb, int WTHq, int wnq) {
+  int S = p->S, Ct = p->C[it];
+  memset(Sb, 0, sizeof(double)*(size_t)WTHq*Ct);
+  for (int t = 0; t < p->NTH; t++) {
+    int is = p->srcLq[it*p->NTLq + p->NNL + t]; if (is < 0) continue;
+    int Dis = p->DL[is]; if (!Dis) continue;
+    int w0 = p->wstLq[it*p->NTLq + p->NNL + t] - wnq, Cs = p->C[is];
+    for (int s = 0; s < S; s++) {
+      int ct = p->cst[it*S+s], cs = p->cst[is*S+s]; if (ct < 0 || cs < 0) continue;
+      int jt = p->mr[it*S+s], js = p->mr[is*S+s];
+      if (p->srcRp[jt*p->NTRp + p->NNR + t] != js) continue;
+      int Djt = p->DR[jt], Djs = p->DR[js];
+      gemm(0, 0, Dis, Djt, Djs, p->cfth[t], M + p->Moff[is] + cs, Cs, PR + p->Poff[jt] + (int64_t)p->wstRp[jt*p->NTRp + p->NNR + t]*Djt, Djt,
+           0.0, Sb + (int64_t)w0*Ct + ct, Ct);
+    }
+  }
+}
+static size_t max_th(const plan_t *p) { size_t m = 1; for (int j = 0; j < p->nR; j++) { size_t x = (size_t)p->R[j]*p->WRp[j]; if (x > m) m = x; } return m; }
+static size_t max_thl(const plan_t *p) { size_t m = 1; for (int i = 0; i < p->nL; i++) { size_t x = (size_t)p->WLq[i]*p->C[i]; if (x > m) m = x; } return m; }
+/* out (U layout) += sum_t (LX_t x 1 x RY_t) U */
+void through_half(const plan_t *p, const double *QL, const double *PR, const double *U, double *out) {
+  if (!p->NTH) return;
+  size_t msz = max_th(p);
+  #pragma omp parallel
+  { double *Sb = (double*)malloc(sizeof(double)*msz);
+  #pragma omp for schedule(dynamic)
+  for (int j = 0; j < p->nR; j++) { int Dj = p->DR[j], Rj = p->R[j]; if (!Dj || !Rj) continue;
+    int wn = p->wstRp[j*p->NTRp + p->NNR], WTH = p->WRp[j] - wn; if (WTH <= 0) continue;
+    th_build(p, j, QL, U, Sb, WTH, wn);
+    gemm(0, 0, Rj, Dj, WTH, 1.0, Sb, WTH, PR + p->Poff[j] + (int64_t)wn*Dj, Dj, 1.0, out + p->Uoff[j], Dj); }
+  free(Sb); }
 }
 
 static size_t max_sl(const plan_t *p) { size_t m = 1; for (int i = 0; i < p->nL; i++) { size_t x = (size_t)p->WL[i]*p->C[i]; if (x > m) m = x; } return m; }
@@ -410,9 +530,9 @@ void hr_u(const plan_t *p, const double *U, double *out) {
       #pragma omp atomic
       n_slab += (double)n; } }
 }
-void heff(const plan_t *p, const double *LH, const double *GL, const double *RH, const double *GR, const double *M, double *out,
-          double *U, double *oU) {
-  left_half(p, LH, GL, M, out); m2u(p, M, U); right_half(p, RH, GR, U, oU); hr_u(p, U, oU); u2m(p, oU, out, 1);
+void heff(const plan_t *p, const double *LH, const double *GL, const double *RH, const double *GR, const double *QL, const double *PR,
+          const double *M, double *out, double *U, double *oU) {
+  left_half(p, LH, GL, M, out); m2u(p, M, U); right_half(p, RH, GR, U, oU); through_half(p, QL, PR, U, oU); hr_u(p, U, oU); u2m(p, oU, out, 1);
 }
 /* out_i (w_i x C_i) = Mat_i (w_i x WL_i) S^L_i  -- with random Mat: the sketch of the expansion for a move to the left */
 void sl_apply(const plan_t *p, const double *Mat, const int64_t *moff, const int *wv, const double *M, double *out, const int64_t *ooff) {
@@ -436,9 +556,12 @@ void sr_apply(const plan_t *p, const double *Mat, const int64_t *moff, const int
     gemm(0, 0, Rj, w, W, 1.0, Sb, W, Mat + moff[j], w, 0.0, out + ooff[j], w); }
   free(Sb); }
 }
-/* new right environment on the left bond: GR_i (WL_i x D_i) = cf S^L_i M_i^T; RH_i = phi_i M_i^T */
-void grow_right(const plan_t *p, const double *M, const double *phi, double *GR, const int64_t *goff, double *RH, const int64_t *hoff) {
-  size_t msz = max_sl(p);
+/* new right environment on the left bond.  RH_i = phi_i M_i^T.  PF_i (WL_i x D_i) = S^L_i M_i^T: the operators Y of this
+   layer in the new basis (near terms with their coefficient, far-arriving terms without).  GR_i (WLq_i x D_i), in the
+   layout of the right stack of that bond: the near rows of PF, then the far terms that pass this layer, from PR. */
+void grow_right(const plan_t *p, const double *M, const double *phi, const double *PR, double *GR, const int64_t *goff, double *RH,
+                const int64_t *hoff, double *PF, const int64_t *poff) {
+  size_t msz = max_sl(p), mt = max_thl(p); if (mt > msz) msz = mt;
   #pragma omp parallel
   { double *Sb = (double*)malloc(sizeof(double)*msz);
   #pragma omp for schedule(dynamic)
@@ -446,14 +569,21 @@ void grow_right(const plan_t *p, const double *M, const double *phi, double *GR,
     double *H = RH + hoff[i];
     gemm(0, 1, Di, Di, Ci, 1.0, phi + p->Moff[i], Ci, M + p->Moff[i], Ci, 0.0, H, Di);
     for (int a = 0; a < Di; a++) for (int b = 0; b < a; b++) { double x = 0.5*(H[a*Di+b] + H[b*Di+a]); H[a*Di+b] = x; H[b*Di+a] = x; }
-    if (!W) continue;
-    if (Ci) sl_build(p, i, M, Sb, 1);
-    gemm(0, 1, W, Di, Ci, 1.0, Sb, Ci, M + p->Moff[i], Ci, 0.0, GR + goff[i], Di); }
+    if (W) { if (Ci) sl_build(p, i, M, Sb, 1);
+      gemm(0, 1, W, Di, Ci, 1.0, Sb, Ci, M + p->Moff[i], Ci, 0.0, PF + poff[i], Di); }
+    int Wq = p->WLq[i]; if (!Wq) continue;
+    int wn = p->NTH ? p->wstLq[i*p->NTLq + p->NNL] : Wq;
+    if (wn) memcpy(GR + goff[i], PF + poff[i], sizeof(double)*(size_t)wn*Di);
+    if (Wq > wn) { if (Ci) thl_build(p, i, PR, M, Sb, Wq-wn, wn);
+      gemm(0, 1, Wq-wn, Di, Ci, 1.0, Sb, Ci, M + p->Moff[i], Ci, 0.0, GR + goff[i] + (int64_t)wn*Di, Di); } }
   free(Sb); }
 }
-/* new left environment on the right bond: GL_j (D_j x WR_j) = cf U_j^T S^R_j; LH_j = U_j^T phi_j */
-void grow_left(const plan_t *p, const double *U, const double *phi, double *GL, const int64_t *goff, double *LH, const int64_t *hoff) {
-  size_t msz = max_sr(p);
+/* new left environment on the right bond.  LH_j = U_j^T phi_j.  QF_j (D_j x WR_j) = U_j^T S^R_j: the operators X of this
+   layer in the new basis, with their coefficients.  GL_j (D_j x WRp_j), in the layout of the left stack of that bond: the
+   near columns of QF, then the far terms that pass this layer, from QL. */
+void grow_left(const plan_t *p, const double *U, const double *phi, const double *QL, double *GL, const int64_t *goff, double *LH,
+               const int64_t *hoff, double *QF, const int64_t *qoff) {
+  size_t msz = max_sr(p), mt = max_th(p); if (mt > msz) msz = mt;
   #pragma omp parallel
   { double *Sb = (double*)malloc(sizeof(double)*msz);
   #pragma omp for schedule(dynamic)
@@ -461,9 +591,13 @@ void grow_left(const plan_t *p, const double *U, const double *phi, double *GL, 
     double *H = LH + hoff[j];
     gemm(1, 0, Dj, Dj, Rj, 1.0, U + p->Uoff[j], Dj, phi + p->Uoff[j], Dj, 0.0, H, Dj);
     for (int a = 0; a < Dj; a++) for (int b = 0; b < a; b++) { double x = 0.5*(H[a*Dj+b] + H[b*Dj+a]); H[a*Dj+b] = x; H[b*Dj+a] = x; }
-    if (!W) continue;
-    if (Rj) sr_build(p, j, U, Sb, 1);
-    gemm(1, 0, Dj, W, Rj, 1.0, U + p->Uoff[j], Dj, Sb, W, 0.0, GL + goff[j], W); }
+    if (W) { if (Rj) sr_build(p, j, U, Sb, 1);
+      gemm(1, 0, Dj, W, Rj, 1.0, U + p->Uoff[j], Dj, Sb, W, 0.0, QF + qoff[j], W); }
+    int Wp = p->WRp[j]; if (!Wp) continue;
+    int wn = p->NTH ? p->wstRp[j*p->NTRp + p->NNR] : Wp;
+    for (int a = 0; a < Dj && wn; a++) memcpy(GL + goff[j] + (int64_t)a*Wp, QF + qoff[j] + (int64_t)a*W, sizeof(double)*wn);
+    if (Wp > wn) { if (Rj) th_build(p, j, QL, U, Sb, Wp-wn, wn);
+      gemm(1, 0, Dj, Wp-wn, Rj, 1.0, U + p->Uoff[j], Dj, Sb, Wp-wn, 0.0, GL + goff[j] + wn, Wp); } }
   free(Sb); }
 }
 '''
@@ -478,28 +612,27 @@ def emit_c(model):
     o = ['#include <stdlib.h>\n#include <string.h>\n#include <stdint.h>\n#include <omp.h>\n']
     for s, kd in enumerate(model.kinds):
         o += [table(f'H{s}O', 'int', kd.H[0], fi), table(f'H{s}I', 'int', kd.H[1], fi), table(f'H{s}V', 'double', kd.H[2], fd)]
-    nk = range(len(model.kinds)); nb = range(len(model.bkinds))
+    nk = range(len(model.kinds))
     o.append(table('NHk', 'int', [len(kd.H[0]) for kd in model.kinds], fi))
     for nm, ct in (('O', 'int'), ('I', 'int'), ('V', 'double')):
         o.append(f'static const {ct} *H{nm}k[] = {{' + ','.join(f'H{s}{nm}' for s in nk) + '};\n')
     cat = lambda ops, i: np.concatenate([a[i] for a in ops]) if ops else []
-    for b, bk in enumerate(model.bkinds):
-        for nm, ops in (('Y', bk.Y), ('X', bk.X)):
-            ptr = np.concatenate([[0], np.cumsum([len(a[0]) for a in ops])])
-            o += [table(f'{nm}{b}P', 'int', ptr, fi), table(f'{nm}{b}O', 'int', cat(ops, 0), fi),
-                  table(f'{nm}{b}I', 'int', cat(ops, 1), fi), table(f'{nm}{b}V', 'double', cat(ops, 2), fd)]
-        o.append(table(f'CF{b}', 'double', bk.cf, fd))
-    for nm in ('Y', 'X'):
-        for suf, ct in (('P', 'int'), ('O', 'int'), ('I', 'int'), ('V', 'double')):
-            o.append(f'static const {ct} *{nm}{suf}b[] = {{' + (','.join(f'{nm}{b}{suf}' for b in nb) or '0') + '};\n')
-    o.append('static const double *CFb[] = {' + (','.join(f'CF{b}' for b in nb) or '0') + '};\n')
+    for nm, stacks in (('Y', model.lstacks), ('X', model.rstacks)):   # Y tables: left stacks; X tables: right stacks
+        for b, st in enumerate(stacks):
+            ptr = np.concatenate([[0], np.cumsum([len(a[0]) for a in st.ops])])
+            o += [table(f'{nm}{b}P', 'int', ptr, fi), table(f'{nm}{b}O', 'int', cat(st.ops, 0), fi),
+                  table(f'{nm}{b}I', 'int', cat(st.ops, 1), fi), table(f'{nm}{b}V', 'double', cat(st.ops, 2), fd),
+                  table(f'{nm}{b}F', 'double', st.scale, fd)]
+        for suf, ct in (('P', 'int'), ('O', 'int'), ('I', 'int'), ('V', 'double'), ('F', 'double')):
+            o.append(f'static const {ct} *{nm}{suf}b[] = {{' + (','.join(f'{nm}{b}{suf}' for b in range(len(stacks))) or '0') + '};\n')
     return ''.join(o) + C_BODY
 
 
 class PlanC(ctypes.Structure):
-    _fields_ = [(n, ctypes.c_int) for n in ('nL', 'nR', 'S', 'sk', 'bl', 'br', 'NTL', 'NTR')] + \
-               [(n, PI32) for n in ('DL', 'DR', 'cst', 'rst', 'cw', 'rh', 'ul', 'C', 'R')] + [('Moff', PI64), ('Uoff', PI64)] + \
-               [(n, PI32) for n in ('srcL', 'wstL', 'WL', 'srcR', 'wstR', 'WR')] + [(n, PI64) for n in ('LHoff', 'GLoff', 'RHoff', 'GRoff')]
+    _fields_ = [(n, ctypes.c_int) for n in ('nL', 'nR', 'S', 'sk', 'bl', 'br', 'NTL', 'NTR', 'NTLq', 'NTRp', 'NNL', 'NNR', 'NTH')] + \
+               [(n, PI32) for n in ('DL', 'DR', 'cst', 'rst', 'cw', 'rh', 'ul', 'mr', 'C', 'R')] + [('Moff', PI64), ('Uoff', PI64)] + \
+               [(n, PI32) for n in ('srcL', 'wstL', 'WL', 'srcR', 'wstR', 'WR', 'srcLq', 'wstLq', 'WLq', 'srcRp', 'wstRp', 'WRp')] + \
+               [(n, PI64) for n in ('LHoff', 'GLoff', 'RHoff', 'GRoff', 'Qoff', 'Poff')] + [('cfth', ctypes.POINTER(ctypes.c_double))]
 
 
 def _blas_pointer():
@@ -520,8 +653,8 @@ def library(model):
         V = ctypes.c_void_p; PP = ctypes.POINTER(PlanC)
         for name, args in (('set_blas', [V]), ('set_threads', [ctypes.c_int]), ('counts', [V, ctypes.c_int]), ('m2u', [PP, V, V]),
                            ('u2m', [PP, V, V, ctypes.c_int]), ('left_half', [PP, V, V, V, V]), ('right_half', [PP, V, V, V, V]), ('hr_u', [PP, V, V]),
-                           ('heff', [PP]+[V]*8), ('sl_apply', [PP]+[V]*6), ('sr_apply', [PP]+[V]*6),
-                           ('grow_right', [PP]+[V]*6), ('grow_left', [PP]+[V]*6)):
+                           ('heff', [PP]+[V]*10), ('sl_apply', [PP]+[V]*6), ('sr_apply', [PP]+[V]*6),
+                           ('grow_right', [PP]+[V]*9), ('grow_left', [PP]+[V]*9)):
             getattr(lib, name).argtypes = args; getattr(lib, name).restype = None
         lib.set_blas(_blas_pointer()); lib.set_threads(int(os.environ.get('EDC_DMRG_THREADS', 1))); _LIBS[key] = (lib, dt)
     return _LIBS[key]
@@ -556,24 +689,31 @@ class Plan:
     """Every offset of one layer tensor and its environments, from the sector sizes of its two bonds (no loops)."""
     def __init__(self, model, r, bl, br):
         kd = model.kinds[model.site_kind[r]]; mod = model.mod
-        ibl = model.bond_kind[r-1] if r > 0 else -1; ibr = model.bond_kind[r] if r < model.n-1 else -1
         mr = br.lookup(bl.m[:, None]+kd.sm[None, :], (bl.k[:, None]+kd.sk[None, :]) % mod)
         cw = np.where(mr >= 0, br.dims[np.maximum(mr, 0)], 0).astype(np.int32); cst = (np.cumsum(cw, axis=1)-cw).astype(np.int32); cst[cw == 0] = -1
         ul = bl.lookup(br.m[:, None]-kd.sm[None, :], (br.k[:, None]-kd.sk[None, :]) % mod)
         rh = np.where(ul >= 0, bl.dims[np.maximum(ul, 0)], 0).astype(np.int32); rst = (np.cumsum(rh, axis=1)-rh).astype(np.int32); rst[rh == 0] = -1
         self.DL = bl.dims.copy(); self.DR = br.dims.copy(); self.C = cw.sum(1).astype(np.int32); self.R = rh.sum(1).astype(np.int32)
-        self.cst, self.rst, self.cw, self.rh, self.ul = (np.ascontiguousarray(a, dtype=np.int32) for a in (cst, rst, cw, rh, ul))
+        self.cst, self.rst, self.cw, self.rh, self.ul, self.mr = (np.ascontiguousarray(a, dtype=np.int32) for a in (cst, rst, cw, rh, ul, mr))
         self.Moff = _off(self.DL.astype(np.int64)*self.C); self.Uoff = _off(self.R.astype(np.int64)*self.DR)
-        self.srcL, self.wstL, self.WL = bl.stack(model.bkinds[ibl] if ibl >= 0 else None)
-        self.srcR, self.wstR, self.WR = br.stack(model.bkinds[ibr] if ibr >= 0 else None)
+        # left bond r: the stack this layer contracts (near terms, then terms from two layers back) and the right stack of the
+        # same bond (near terms, then terms that end one layer ahead); right bond r+1: the same two, roles exchanged
+        sL, sLq, sR, sRp, th = model.lstack(r), model.rstack(r), model.rstack(r+1), model.lstack(r+1), model.through(r)
+        self.srcL, self.wstL, self.WL = bl.stack(sL); self.srcLq, self.wstLq, self.WLq = bl.stack(sLq)
+        self.srcR, self.wstR, self.WR = br.stack(sR); self.srcRp, self.wstRp, self.WRp = br.stack(sRp)
         i64 = lambda a: a.astype(np.int64)
-        self.LHoff = _off(i64(self.DL)**2); self.GLoff = _off(i64(self.DL)*self.WL)
-        self.RHoff = _off(i64(self.DR)**2); self.GRoff = _off(i64(self.WR)*self.DR)
+        self.LHoff = _off(i64(self.DL)**2); self.GLoff = _off(i64(self.DL)*self.WL); self.Qoff = _off(i64(self.DL)*self.WLq)
+        self.RHoff = _off(i64(self.DR)**2); self.GRoff = _off(i64(self.WR)*self.DR); self.Poff = _off(i64(self.WRp)*self.DR)
+        self.GLoffR = _off(i64(self.DR)*self.WRp); self.QoffR = _off(i64(self.DR)*self.WR)       # environments this layer writes
+        self.GRoffL = _off(i64(self.WLq)*self.DL); self.PoffL = _off(i64(self.WL)*self.DL)
+        self.cfth = np.array(th.cf if th else [0.0], dtype=np.float64)
         self.size = int(self.Moff[-1]); assert self.size == int(self.Uoff[-1])
         self.nL, self.nR = bl.n, br.n
-        c = PlanC(); c.nL, c.nR, c.S, c.sk, c.bl, c.br = bl.n, br.n, kd.S, model.site_kind[r], ibl, ibr
-        c.NTL = model.bkinds[ibl].NT if ibl >= 0 else 0; c.NTR = model.bkinds[ibr].NT if ibr >= 0 else 0
-        for name, typ in PlanC._fields_[8:]:
+        c = PlanC(); c.nL, c.nR, c.S, c.sk, c.bl, c.br = bl.n, br.n, kd.S, model.site_kind[r], model.site_ls[r], model.site_rs[r]
+        c.NTL, c.NTR, c.NTLq, c.NTRp = (st.NT if st else 0 for st in (sL, sR, sLq, sRp))
+        c.NNL = (sL.NN if sL else sLq.NN if sLq else 0); c.NNR = (sR.NN if sR else sRp.NN if sRp else 0); c.NTH = th.NT if th else 0
+        assert (not th) or (sLq.NT == sLq.NN+th.NT and sRp.NT == sRp.NN+th.NT)
+        for name, typ in PlanC._fields_[13:]:
             setattr(c, name, getattr(self, name).ctypes.data_as(typ))
         self.c = c; self.ref = ctypes.byref(c)
 
@@ -602,6 +742,7 @@ class DMRG:
         self.bond[n].dims[:] = 1; self.bond[0].dims[:] = 1
         self.M = [None]*n; self.plan = [None]*n
         self.LH = [None]*(n+1); self.GL = [None]*(n+1); self.RH = [None]*(n+1); self.GR = [None]*(n+1)
+        self.Q = [np.zeros(1)]*(n+1); self.P = [np.zeros(1)]*(n+1)     # projected right stack of a bond (left side), left stack (right side)
         for r in range(n-1, 0, -1):                                    # random right-orthonormal start
             C = Plan(model, r, self.bond[r], self.bond[r+1]).C
             self.bond[r].dims[:] = np.minimum(D0, C); p = self.plan[r] = Plan(model, r, self.bond[r], self.bond[r+1])
@@ -619,23 +760,23 @@ class DMRG:
         p = self.plan[r]; M = self.M[r]; lib = self.lib; U = np.empty(p.size); oU = np.empty(p.size); phi = np.empty(p.size)
         lib.m2u(p.ref, _p(M), _p(U)); lib.right_half(p.ref, _p(self.RH[r+1]), _p(self.GR[r+1]), _p(U), _p(oU)); lib.hr_u(p.ref, _p(U), _p(oU))
         lib.u2m(p.ref, _p(oU), _p(phi), 0)
-        goff = _off(p.WL.astype(np.int64)*p.DL); self.GR[r] = np.zeros(max(1, int(goff[-1]))); self.RH[r] = np.zeros(max(1, int(p.LHoff[-1])))
-        lib.grow_right(p.ref, _p(M), _p(phi), _p(self.GR[r]), _p(goff), _p(self.RH[r]), _p(p.LHoff))
+        self.GR[r] = np.zeros(max(1, int(p.GRoffL[-1]))); self.RH[r] = np.zeros(max(1, int(p.LHoff[-1]))); self.P[r] = np.zeros(max(1, int(p.PoffL[-1])))
+        lib.grow_right(p.ref, _p(M), _p(phi), _p(self.P[r+1]), _p(self.GR[r]), _p(p.GRoffL), _p(self.RH[r]), _p(p.LHoff), _p(self.P[r]), _p(p.PoffL))
 
     def _grow_left(self, r):                                           # needs M[r] left-orthonormal, LH/GL[r]
         p = self.plan[r]; M = self.M[r]; lib = self.lib; U = np.empty(p.size); phi = np.zeros(p.size); pU = np.empty(p.size)
         lib.left_half(p.ref, _p(self.LH[r]), _p(self.GL[r]), _p(M), _p(phi)); lib.m2u(p.ref, _p(M), _p(U)); lib.m2u(p.ref, _p(phi), _p(pU))
         lib.hr_u(p.ref, _p(U), _p(pU))
-        goff = _off(p.DR.astype(np.int64)*p.WR); self.GL[r+1] = np.zeros(max(1, int(goff[-1]))); self.LH[r+1] = np.zeros(max(1, int(p.RHoff[-1])))
-        lib.grow_left(p.ref, _p(U), _p(pU), _p(self.GL[r+1]), _p(goff), _p(self.LH[r+1]), _p(p.RHoff))
+        self.GL[r+1] = np.zeros(max(1, int(p.GLoffR[-1]))); self.LH[r+1] = np.zeros(max(1, int(p.RHoff[-1]))); self.Q[r+1] = np.zeros(max(1, int(p.QoffR[-1])))
+        lib.grow_left(p.ref, _p(U), _p(pU), _p(self.Q[r]), _p(self.GL[r+1]), _p(p.GLoffR), _p(self.LH[r+1]), _p(p.RHoff), _p(self.Q[r+1]), _p(p.QoffR))
 
     # ---- lowest state of the effective Hamiltonian of layer r
     def solve(self, r, tol=1e-6, maxit=40):
         p = self.plan[r]; lib = self.lib; n = p.size; U = np.empty(n); oU = np.empty(n)
-        LH, GL, RH, GR = (_p(a) for a in (self.LH[r], self.GL[r], self.RH[r+1], self.GR[r+1]))
+        LH, GL, RH, GR, QL, PR = (_p(a) for a in (self.LH[r], self.GL[r], self.RH[r+1], self.GR[r+1], self.Q[r], self.P[r+1]))
 
         def mv(v):
-            out = np.zeros(n); lib.heff(p.ref, LH, GL, RH, GR, _p(v), _p(out), _p(U), _p(oU)); self.stats['products'] += 1
+            out = np.zeros(n); lib.heff(p.ref, LH, GL, RH, GR, QL, PR, _p(v), _p(out), _p(U), _p(oU)); self.stats['products'] += 1
             return out
         t0 = time.perf_counter(); v = self.M[r]/np.linalg.norm(self.M[r])
         if self.noise > 0:                                            # a start that is an exact eigenvector cannot leave its symmetry sector
@@ -752,7 +893,7 @@ class DMRG:
 ALPHAS = [1e-2, 1e-2, 1e-3, 1e-3, 1e-4, 1e-5, 1e-6, 0.0, 0.0]
 
 
-def ground_state(model, D, nup=None, K=0, sweeps=None, alphas=None, tol=1e-6, seed=0, log=None):
+def ground_state(model, D, nup=None, K=0, sweeps=None, alphas=None, tol=3e-5, seed=0, log=None):
     """Lowest state with nup up spins (default: half) and momentum 2 pi K / c around the cylinder."""
     nup = model.lat.N//2 if nup is None else nup
     eng = DMRG(model, nup, K, seed=seed); c = (ctypes.c_double*2)(); eng.lib.counts(c, 1)
@@ -761,7 +902,7 @@ def ground_state(model, D, nup=None, K=0, sweeps=None, alphas=None, tol=1e-6, se
     for Dw in (max(min(D, 64), D//4), max(min(D, 64), D//2)):          # two warm-up sweeps at small bonds, with a random start
         eng.sweep(Dw, 1e-2, tol, noise=1e-2); eng.stats['energies'].pop()
     for sw, al in enumerate(alphas):
-        p0 = eng.stats['products']; E = eng.sweep(D, al, tol)
+        p0 = eng.stats['products']; E = eng.sweep(D, al, tol if al > 0 else tol/30)   # the closing sweeps without expansion: tighter
         if log:
             eng.lib.counts(c, 0)
             log(f'  sweep {sw+1} (expansion {al:.0e}): E = {E:.10f} | largest bond {max(eng.bond_sizes())} | products {eng.stats["products"]-p0} | '
@@ -774,7 +915,7 @@ def ground_state(model, D, nup=None, K=0, sweeps=None, alphas=None, tol=1e-6, se
     return E, eng, info
 
 
-def magnetisation(model, D, sweeps=None, tol=1e-6, seed=0, log=None, sz2=None):
+def magnetisation(model, D, sweeps=None, tol=3e-5, seed=0, log=None, sz2=None):
     """Lowest level of every S_z >= 0 sector, in every momentum sector K = 0 .. c/2 (K and -K have the same levels).
     Returns rows (2 S_z, {K: E}); the field at which the magnetisation steps from S_z to S_z + 1 is E(S_z+1) - E(S_z)."""
     N = model.lat.N; c = model.mod; rows = []
@@ -797,8 +938,7 @@ def lattice_from_spec(kv, cp):
     if cell == 'square':
         return square_cylinder(Lx, Ly, cp.get('J1', 1.0), cp.get('J2', 0.0))
     assert cell == 'kagome', 'lattice cylinder: cell=square | kagome'
-    assert not cp.get('J2'), 'kagome cylinder: nearest-neighbour bonds only so far'
-    return kagome_cylinder(Lx, Ly, cp.get('J1', 1.0), tail=kv.get('ends', 'ring') == 'cell')
+    return kagome_cylinder(Lx, Ly, cp.get('J1', 1.0), tail=kv.get('ends', 'ring') == 'cell', J2=cp.get('J2', 0.0))
 
 
 def run_spec(spec):
@@ -809,7 +949,7 @@ def run_spec(spec):
     lat = lattice_from_spec(kv, cp); momentum = sol.get('labels', 'sz,k') != 'sz'
     if sec.get('Sz') == 'all':                                        # the whole magnetisation curve, every momentum
         model = Model(lat, Delta=cp.get('Delta', 1.0), momentum=True); D = int(sol.get('D', 256)); t0 = time.perf_counter()
-        rows = magnetisation(model, D, sweeps=int(sol['sweeps']) if 'sweeps' in sol else None, tol=float(sol.get('tol', 1e-6)))
+        rows = magnetisation(model, D, sweeps=int(sol['sweeps']) if 'sweeps' in sol else None, tol=float(sol.get('tol', 3e-5)))
         low = [min(lev.values()) for tz, lev in rows]
         return dict(lattice=lat.name, N=lat.N, model='heisenberg' if model.Delta == 1 else 'xxz', method='dmrg', D=D,
                     Sz=[tz/2 for tz, lev in rows], energy=low, momentum_of_lowest=[min(lev, key=lev.get) for tz, lev in rows],
@@ -819,7 +959,7 @@ def run_spec(spec):
     kf = Fraction(sec.get('k', '0')); K = kf*lat.c/2; assert K.denominator == 1, f'k = 2 K / Ly in units of pi, K integer (Ly = {lat.c})'
     model = Model(lat, Delta=cp.get('Delta', 1.0), momentum=momentum); D = int(sol.get('D', 256))
     E, eng, info = ground_state(model, D, nup=int(nup2)//2, K=int(K), sweeps=int(sol['sweeps']) if 'sweeps' in sol else None,
-                                tol=float(sol.get('tol', 1e-6)), seed=int(sol.get('seed', 0)))
+                                tol=float(sol.get('tol', 3e-5)), seed=int(sol.get('seed', 0)))
     return dict(lattice=lat.name, N=lat.N, model='heisenberg' if model.Delta == 1 else 'xxz', method='dmrg', layers=model.n,
                 labels='sz,k' if momentum else 'sz', D=D, Sz=float(twosz/2), k=float(kf), energy=E, energies_by_sweep=info['energies'],
                 bond_sizes=info['bonds'], products=info['products'], discarded_weight=info['discarded'], seconds=round(info['time'], 3),

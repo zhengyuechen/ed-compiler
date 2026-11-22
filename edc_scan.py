@@ -53,7 +53,7 @@ def start_vector(eng, guess, mode, seed, eta=None):
     """Start vector of an exact solve.  'random': a random vector (finds the lowest level of the sector whatever the
     earlier points gave).  'guess': the vector handed in (fastest, but Lanczos started from an eigenvector of a hidden
     symmetry, e.g. another total spin, never leaves it: a level crossing is missed).  'mixed': guess + eta * random
-    (unit vectors), which keeps a component on every level; with eta = 0.5 it passed the crossing tests of LOG section 63,
+    (unit vectors), which keeps a component on every level; with eta = 0.5 it passed the crossing tests,
     with eta = 0.1 and 0.02 it stopped on the wrong level just behind a crossing (errors 5e-3 and 4e-2)."""
     from edc_hubbard_sym import _random_vector
     xp = eng.xp
@@ -77,7 +77,7 @@ def reduced_basis_scan(eng, models, tol=1e-10, solve_tol=1e-12, max_basis=64, st
     solve_rtol: what every exact solve has to reach beyond the energy criterion of the Lanczos routine.  'auto': the
     energy-error estimate 2 r^2 / gap of its Ritz pair below tol / 10 (r the residual); a number: the residual, relative
     to max(1, |E|); None: the energy criterion alone.  A basis built from vectors that are converged in energy only
-    cannot reach tol in a sector whose two lowest levels are close: every point is then solved exactly (LOG section 76).
+    cannot reach tol in a sector whose two lowest levels are close: every point is then solved exactly.
     start: start vector of the exact solves after the sentinels, see start_vector.
     sentinels: this many points, evenly spaced over the list, are solved first from random vectors.
     audit: after convergence this many untrained points are solved from random vectors and compared; a disagreement adds

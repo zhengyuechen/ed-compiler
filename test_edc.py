@@ -45,7 +45,7 @@ for L in (10, 12):
     ref = dense_energy(m, L//2)
     check(f'ring L={L}', m, L//2, ref=ref)
     # rings with L = 4n+2 have their ground state at k = pi; the k = 0 reference is then the dense k = 0 value
-    ref0 = ref if L % 4 == 0 else -4.09220734673867   # L = 10, k = 0 (dense projection, LOG section 1)
+    ref0 = ref if L % 4 == 0 else -4.09220734673867   # L = 10, k = 0 (dense projection)
     check(f'ring L={L}, k=0', m, L//2, group=edc.ring_translations(L), ref=ref0)
 # 2. J1-J2 ring at the Majumdar-Ghosh point: E0 = -3L/8 exactly
 for L in (12, 16):
