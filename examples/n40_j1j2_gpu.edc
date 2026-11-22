@@ -1,0 +1,7 @@
+# 40-site cluster of Richter & Schulenburg (2010), J2 = 0.5: ground state, first excited level, order parameters
+lattice square a1=6,2 a2=-2,6
+couplings J1=1 J2=0.5
+sector Sz=0 k=0,0 irrep=A1 flip=+1
+solve levels=2 device=gpu
+measure M2 Q=1,1
+measure M2 Q=1,0

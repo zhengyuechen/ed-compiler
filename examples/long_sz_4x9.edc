@@ -1,0 +1,5 @@
+# the same torus and sector in the S_z basis (all symmetries, spin flip +1): ground state, then 100,000 recursion steps
+lattice rect Lx=4 Ly=9
+couplings J1=1
+sector Sz=0 k=0,0 irrep=A1 flip=+1
+solve device=gpu steps=100000

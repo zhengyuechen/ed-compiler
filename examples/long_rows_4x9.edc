@@ -1,0 +1,5 @@
+# 4 x 9 square torus, total spin 0 (ring-of-rows engine): ground state, then 100,000 recursion steps on the GPU
+lattice rect Lx=4 Ly=9
+couplings J1=1
+sector S=0 k=0,0 px=+1 py=+1
+solve engine=rows device=gpu steps=100000

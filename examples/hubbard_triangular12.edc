@@ -1,0 +1,5 @@
+# Fermi-Hubbard on the 12-site triangular cluster with full C6v symmetry, quarter filling of each spin, every sector
+lattice triangular a1=2,2 a2=-2,4
+model hubbard t=1 U=6
+sector Nup=3 Ndn=3 all
+solve device=cpu

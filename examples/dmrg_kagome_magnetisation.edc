@@ -1,0 +1,6 @@
+# magnetisation curve of a kagome cylinder: YC6 (3 unit cells around), 6 whole unit-cell columns, 54 spins;
+# lowest level of every S_z and every momentum around the cylinder
+lattice cylinder cell=kagome Lx=6 Ly=3 ends=cell
+couplings J1=1
+sector Sz=all
+solve method=dmrg D=400

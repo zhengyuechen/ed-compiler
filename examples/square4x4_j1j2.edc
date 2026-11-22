@@ -1,0 +1,5 @@
+# 4x4 square lattice, J1-J2 at J2 = 0.5, ground state of the Gamma A1 sector (CPU)
+lattice rect Lx=4 Ly=4
+couplings J1=1 J2=0.5
+sector Sz=0 k=0,0 irrep=A1
+solve levels=1 device=cpu

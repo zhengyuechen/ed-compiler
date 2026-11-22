@@ -1,0 +1,5 @@
+# ground state of a Heisenberg cylinder of 8 rings of 6 spins with DMRG; every bond carries S_z and the momentum
+lattice cylinder Lx=8 Ly=6
+couplings J1=1
+sector Sz=0 k=0
+solve method=dmrg D=512

@@ -1,0 +1,5 @@
+# the same sector in the S_z basis (sub engine): K = (0,0), A1, spin flip +1.  E0 = -21.960696876138
+lattice rect Lx=4 Ly=8
+couplings J1=1
+sector Sz=0 k=0,0 irrep=A1 flip=+1
+solve device=cpu

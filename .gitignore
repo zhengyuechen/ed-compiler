@@ -1,0 +1,5 @@
+.edc_cache/
+__pycache__/
+*.pyc
+*.so
+.DS_Store

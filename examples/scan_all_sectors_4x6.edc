@@ -1,0 +1,6 @@
+# J1-J2 on a 4 x 6 torus: the lowest level of every symmetry sector at 41 values of J2 (each sector solved as one family)
+lattice rect Lx=4 Ly=6
+couplings J1=1 J2=0.5
+sector Sz=0 all
+scan J2=0:1:41
+solve device=cpu

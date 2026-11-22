@@ -1,0 +1,5 @@
+# Kagome Heisenberg, 12 sites (Läuchli et al. 2011: E0 = -5.444 875 216), every symmetry sector
+lattice kagome a1=2,0 a2=0,2
+couplings J1=1
+sector Sz=0 all
+solve device=cpu

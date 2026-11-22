@@ -1,0 +1,6 @@
+# kagome cylinder, YC6 (3 unit cells around), 2 chain rings, XXZ with Delta = 0.7:
+# lowest state with S_z = -3/2 and momentum 2 pi / 3 around the cylinder
+lattice cylinder cell=kagome Lx=2 Ly=3
+couplings J1=1 Delta=0.7
+sector Sz=-3/2 k=2/3
+solve method=dmrg D=400

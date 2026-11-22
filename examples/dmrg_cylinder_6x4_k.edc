@@ -1,0 +1,5 @@
+# lowest state with momentum pi/2 around a J1-J2 cylinder of 6 rings of 4 spins
+lattice cylinder Lx=6 Ly=4
+couplings J1=1 J2=0.5
+sector Sz=0 k=1/2
+solve method=dmrg D=400

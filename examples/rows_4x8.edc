@@ -1,0 +1,6 @@
+# 4 x 8 square torus (32 sites): lowest singlet of the fully symmetric sector with the ring-of-rows engine
+# (total spin 0 and both translations; rows of 4 along x).  E0 = -21.960696876138
+lattice rect Lx=4 Ly=8
+couplings J1=1
+sector S=0 k=0,0 px=+1 py=+1
+solve engine=rows device=cpu time_product=1

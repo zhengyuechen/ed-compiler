@@ -1,0 +1,6 @@
+# J1-J2 Heisenberg model on a 4 x 6 torus: lowest level of one sector at 101 values of J2, solved as one family
+lattice rect Lx=4 Ly=6
+couplings J1=1 J2=0.5
+sector Sz=0 k=0,0 irrep=A1 flip=+1
+scan J2=0:1:101
+solve device=cpu
