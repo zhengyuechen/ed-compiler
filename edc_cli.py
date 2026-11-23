@@ -41,6 +41,14 @@
     measure S Q=1,1                      # spin structure factor S(Q) and M^2(Q) = S/(N+2) of the ground state, Q averaged
                                          # over its star; Q Cartesian in units of pi, or Qr=q1,q2 in units of b1, b2
 
+    # any block of a spin model on the kagome, triangular or square lattice through layouts of the vector (edc_glayout):
+    # the speed of stored connectivity with a fifth of its memory; levels=, measure and `sector ... all` as for engine=sub
+    lattice kagome a1=2,2 a2=-2,4
+    couplings J1=1 J2=0.12
+    sector Sz=1 k=0,0 irrep=X0
+    solve engine=layout device=gpu       # time_product=1 adds the time of one product; fold=table|fly|scatter, expand=table|fly
+                                         # (GPU: chosen by the free device memory if not given; reserve=N vectors kept free)
+
     # kagome torus with inversion as its only point operation: one product through three layouts of the vector
     lattice kagome a1=3,0 a2=0,4
     couplings J1=1
@@ -195,13 +203,23 @@ def _store_opts(spec):
     return dict(stored={'partial': 'partial', '1': True, '0': False}.get(sol.get('stored'), None), reserve_vectors=int(sol.get('reserve', 3)))
 
 
+def _spin_engine(spec, mb, nup, cl, k, ir, flip, device, pops):
+    """The engine of one block for scans: `solve engine=layout` (edc_glayout) or the sub engine."""
+    if spec['solve'].get('engine', 'sub') == 'layout':
+        import edc_glayout
+        return edc_glayout.LayoutEngine(mb, nup, cl, k, ir, flip, device=device, point_ops=pops, fold=spec['solve'].get('fold'), expand=spec['solve'].get('expand'),
+                                        reserve_vectors=int(spec['solve'].get('reserve', 4)))
+    import edc_sub
+    return edc_sub.SubEngine(mb, nup, cl, k, ir, flip, device=device, point_ops=pops, **_store_opts(spec))
+
+
 def scan_spin(spec, kind, cl, nup, k, ir, flip, device, pops=None):
     """One sector along the scan.  method family: edc_scan.reduced_basis_scan; points: one solve per point from a random vector."""
     import edc_sub, edc_scan
     sc = spec['scan']; pts = scan_grid(sc)
     models, mb = scan_models(spec, kind, cl)
     t0 = time.perf_counter()
-    e = edc_sub.SubEngine(mb, nup, cl, k, ir, flip, device=device, point_ops=pops, **_store_opts(spec))
+    e = _spin_engine(spec, mb, nup, cl, k, ir, flip, device, pops)
     out = dict(dim=int(e.dim))
     if e.dim == 0:
         return dict(out, E=None)
@@ -226,7 +244,7 @@ def sentinel_energies(spec, kind, cl, nup, k, ir, flip, device, pops, idxs, eng=
     import edc_sub
     if eng is None:
         models, mb = scan_models(spec, kind, cl)
-        eng = (edc_sub.SubEngine(mb, nup, cl, k, ir, flip, device=device, point_ops=pops, **_store_opts(spec)), models)
+        eng = (_spin_engine(spec, mb, nup, cl, k, ir, flip, device, pops), models)
     e, models = eng
     out = dict(dim=int(e.dim), E=[], products=0, eng=eng)
     for i in idxs:
@@ -239,7 +257,7 @@ def sentinel_energies(spec, kind, cl, nup, k, ir, flip, device, pops, idxs, eng=
 
 def solve_spin(spec, kind, cl, m, nup, k, ir, flip, nev, tol, device, engine, devices, pops=None):
     out = {}
-    assert pops is None or engine == 'sub', 'restricted point groups (complete scans): engine=sub'
+    assert pops is None or engine in ('sub', 'layout'), 'restricted point groups (complete scans): engine=sub or layout'
     assert not (spec['measure'] and engine == 'k'), 'measurements: engine sub or lean'
     if engine == 'lean':
         import edc_gpu as eg, edc_gpu_lean as gl
@@ -261,7 +279,13 @@ def solve_spin(spec, kind, cl, m, nup, k, ir, flip, nev, tol, device, engine, de
     else:
         import edc_sub
         sol = spec['solve']
-        e = edc_sub.SubEngine(m, nup, cl, k, ir, flip, device=device, devices=devices, point_ops=pops, **_store_opts(spec))
+        if engine == 'layout':                                   # the product through layouts of the vector (edc_glayout)
+            import edc_glayout
+            assert not devices, 'engine=layout: one device'
+            e = edc_glayout.LayoutEngine(m, nup, cl, k, ir, flip, device=device, point_ops=pops, fold=sol.get('fold'), expand=sol.get('expand'), reserve_vectors=int(sol.get('reserve', 4)))
+            out.update(parts=e.p, layout_entries=int(sum(e.expanded.values())), table_bytes=e.stored_bytes, fold=e.fold, expand=e.expand)
+        else:
+            e = edc_sub.SubEngine(m, nup, cl, k, ir, flip, device=device, devices=devices, point_ops=pops, **_store_opts(spec))
         if sol.get('rule') == 'bound' and e.dim > 400 and not devices:       # several levels, stopped by an error bound
             import edc_levels
             lev, it, conv, info = edc_levels.lowest_levels(e, nev, tol=float(sol.get('tol', 1e-10)))
@@ -285,6 +309,8 @@ def solve_spin(spec, kind, cl, m, nup, k, ir, flip, nev, tol, device, engine, de
                 out[key] = em.structure_factor(e, psi, cl, Q)
             del psi
     out.update(dim=e.dim, E=E, iterations=it)
+    if 'time_product' in spec['solve'] and engine == 'layout' and e.dim:
+        out['product_seconds'] = e.time_matvec()
     if 'steps' in spec['solve'] and engine == 'sub':
         e0 = float(E[0]) if isinstance(E, (list, tuple, np.ndarray)) else float(E); t_s = time.perf_counter()
         out['steps'] = int(spec['solve']['steps']); out['solve_seconds_before_steps'] = None
@@ -397,7 +423,7 @@ def run(spec):
         nu = cl.N//2+int(round(float(sec.get('Sz', 0))))
         def one(k, ir, fl, pops):
             if spec['scan']:
-                assert engine == 'sub' and not devices and nev == 1 and not spec['measure'], 'scan: engine sub, one device, lowest level, no measurements'
+                assert engine in ('sub', 'layout') and not devices and nev == 1 and not spec['measure'], 'scan: engine sub or layout, one device, lowest level, no measurements'
                 return scan_spin(spec, kind, cl, nu, k, ir, fl, device, pops)
             return solve_spin(spec, kind, cl, m, nu, k, ir, fl, nev, tol, device, engine, devices, pops)
         out.update(nup=nu)

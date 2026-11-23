@@ -60,6 +60,22 @@ for nup in range(6, 13):
     assert d < 1e-10, (nup, d)
 print(f'kagome 12, J1-J2 = {Jv}: all 2^12 levels, largest difference {worst:.1e}')
 
+# 1b. kagome 12, XXZ (--alpha): complete spectrum
+import edc
+alpha, wx = 0.4, 0.0
+model = edc.SpinHalfModel(cl.N)
+for sh, Jb in enumerate(Jv, start=1):
+    for i, j in cl.bonds(sh):
+        model.zz(i, j, Jb); model.exchange(i, j, Jb*alpha)
+recs = run('kagome', '2,0,0,2', '1,0.3', os.path.join(tmp, 'k12x.jsonl'), '--dense', '1000000', '--alpha', str(alpha))
+for nup in range(6, 13):
+    ref = np.linalg.eigvalsh(sector_matrix(model, nup).toarray())
+    got = np.sort(np.concatenate([np.repeat(r['eigs'], r['mult']) for r in recs if r['nup'] == nup and r['dim']]))
+    assert len(got) == len(ref) == math.comb(12, nup) and all(r['alpha'] == alpha for r in recs)
+    d = float(np.abs(got-ref).max()); wx = max(wx, d)
+    assert d < 1e-10, (nup, d)
+print(f'kagome 12, XXZ with alpha = {alpha}, J1-J2 = {Jv}: all 2^12 levels, largest difference {wx:.1e}')
+
 # 2. kagome 18: traces of powers
 cl = L.LatticeCluster('kagome', (2, -2), (-2, -1)); Jv = (1.0, 0.2); model = cl.heisenberg(*Jv)
 f18 = os.path.join(tmp, 'k18.jsonl')

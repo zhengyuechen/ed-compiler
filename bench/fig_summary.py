@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summary figure for the 2026-11-21 report: (a) thread scaling on one RIS node, ring 32 k=0;
+"""Summary figure for the 2026-11-21 report: (a) thread scaling on one cluster node, ring 32 k=0;
 (b) time to the ground-state energy at 36 sites; (c) Hubbard half filling, time per Lanczos iteration."""
 import json, os, glob
 import matplotlib

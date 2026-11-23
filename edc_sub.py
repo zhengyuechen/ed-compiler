@@ -405,8 +405,10 @@ def source(L, w, model, nup, cosets, nK, nbytes, real, flip, target, rank64=Fals
         o.append('void make_reps(st_t* st, i64 nw) {\n#pragma omp parallel for schedule(dynamic, 256)\n'
                  ' for (i64 w = 0; w < nw; w++) { u64 word = BITS[w]; i64 k = (i64)RANK[w];'
                  ' while (word) { int b = __builtin_ctzll(word); word &= word - 1; st[k++] = state_at(w * 64 + b); } } }')
-        o.append('double vdot_re(const double* a, const double* b, i64 m) { double s = 0.0;\n#pragma omp parallel for reduction(+:s) schedule(static)\n'
-                 ' for (i64 i = 0; i < m; i++) s += a[i] * b[i]; return s; }')
+        o.append('double vdot_re(const double* a, const double* b, i64 m) { double part[256]; int nt = omp_get_max_threads(); if (nt > 256) nt = 256;\n'
+                 ' for (int t = 0; t < 256; t++) part[t] = 0.0;\n#pragma omp parallel num_threads(nt)\n { int t = omp_get_thread_num(); double s = 0.0;\n'
+                 '#pragma omp for schedule(static) nowait\n for (i64 i = 0; i < m; i++) s += a[i] * b[i];\n part[t] = s; }\n'
+                 ' double s = 0.0; for (int t = 0; t < nt; t++) s += part[t]; return s; }')   # partial sums added in thread order: the same bits every call
         o.append('void axpy(double c, const double* x, double* y, i64 m) {\n#pragma omp parallel for schedule(static)\n'
                  ' for (i64 i = 0; i < m; i++) y[i] += c * x[i]; }')
         o.append('void scale2(double* u, double cu, double* v, double cv, i64 m) {\n#pragma omp parallel for schedule(static)\n'

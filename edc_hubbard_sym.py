@@ -246,8 +246,10 @@ def source(L, nup, ndn, fams, U, ngr, nch, flip, real, target, fs, sflip, tab=Tr
                  ' for (i64 i = 0; i < n; i++) { vt r = row(i, x); y[i] = accumulate ? y[i] + r : r; } }')
         # threaded vector operations for the Lanczos loop, on the underlying doubles (complex = 2 doubles; real parts of
         # <a|b> and real scalars only, which is all Lanczos needs)
-        o.append('double vdot_re(const double* a, const double* b, i64 m) { double s = 0.0;\n#pragma omp parallel for reduction(+:s) schedule(static)\n'
-                 ' for (i64 i = 0; i < m; i++) s += a[i] * b[i]; return s; }')
+        o.append('double vdot_re(const double* a, const double* b, i64 m) { double part[256]; int nt = omp_get_max_threads(); if (nt > 256) nt = 256;\n'
+                 ' for (int t = 0; t < 256; t++) part[t] = 0.0;\n#pragma omp parallel num_threads(nt)\n { int t = omp_get_thread_num(); double s = 0.0;\n'
+                 '#pragma omp for schedule(static) nowait\n for (i64 i = 0; i < m; i++) s += a[i] * b[i];\n part[t] = s; }\n'
+                 ' double s = 0.0; for (int t = 0; t < nt; t++) s += part[t]; return s; }')   # partial sums added in thread order: the same bits every call
         o.append('void axpy(double c, const double* x, double* y, i64 m) {\n#pragma omp parallel for schedule(static)\n'
                  ' for (i64 i = 0; i < m; i++) y[i] += c * x[i]; }')
         o.append('void scale2(double* u, double cu, double* v, double cv, i64 m) {\n#pragma omp parallel for schedule(static)\n'
@@ -634,12 +636,19 @@ def lanczos(eng, tol=1e-12, maxit=1000, seed=42, nev=1, stable=3, small=400, _co
     return e_old, it, time.perf_counter()-t0
 
 
-def ground_state_vector(eng):
+def ground_state_vector(eng, refine=3):
     """Lowest Ritz vector of the last lanczos() run on eng (replayed with the same seed and operations), normalised.
-    Needs three vectors of the sector, a fourth for the check.  Returns (psi, <psi|H|psi>, |H psi - E psi|)."""
+    Needs three vectors of the sector, a fourth for the check.  Returns (psi, <psi|H|psi>, |H psi - E psi|).
+
+    The replay rebuilds the Lanczos basis; it gives the vector of the run only if every operation rounds as it did in the
+    run.  A long run makes copies of converged levels (the highest level first), and from then on a replay that rounds
+    one sum differently (threaded reductions, atomic additions on a GPU) builds another basis: the vector comes out with
+    a residual of 1e-2 instead of 1e-7 while the energy of the run is right.  So the true residual is compared
+    with the estimate of the run; while it is more than ten times larger, the vector starts a short new run that is
+    replayed in turn (at most `refine` times; refine=0: no check)."""
     from scipy.linalg import eigh_tridiagonal
     xp, n = eng.xp, eng.dim
-    L = eng._lanczos
+    L = eng._lanczos; est = None
     if 'psi' in L:
         psi = L['psi']
     elif 'dense' in L:
@@ -647,15 +656,25 @@ def ground_state_vector(eng):
     else:
         A, B = np.array(L['A']), np.array(L['B'])
         m = len(A)
-        _, U = eigh_tridiagonal(A, B[:m-1], select='i', select_range=(0, 0))
+        _, U = eigh_tridiagonal(A, B[:m-1], select='i', select_range=(0, 0)); est = float(B[m-1]*abs(U[-1, 0]))
         psi = lanczos(eng, maxit=m, seed=L['seed'], small=0, _coef=U[:, 0], v0=L.get('v0'))
     axpy, dot = _vec_ops(xp, eng.real)
-    psi *= 1.0/math.sqrt(dot(psi, psi).real)
-    hp = xp.zeros_like(psi); eng.matvec(psi, hp)
-    E = dot(psi, hp).real
-    axpy(-E, psi, hp)
-    res = math.sqrt(dot(hp, hp).real)
-    del hp
+
+    def check(psi):
+        psi *= 1.0/math.sqrt(dot(psi, psi).real)
+        hp = xp.zeros_like(psi); eng.matvec(psi, hp)
+        E = dot(psi, hp).real
+        axpy(-E, psi, hp)
+        return E, math.sqrt(dot(hp, hp).real)
+    E, res = check(psi); passes = 0
+    while est is not None and passes < refine and res > max(10*est, 1e-12*max(1.0, abs(E))):
+        passes += 1; sc = max(1.0, abs(E)); goal = max(est, 1e-13*sc)
+        lanczos(eng, tol=1e-13, maxit=max(20, m), small=0, v0=psi, rtol=goal/sc)          # psi is close: a short run
+        L2 = eng._lanczos; A2, B2 = np.array(L2['A']), np.array(L2['B']); m2 = len(A2)
+        _, U2 = eigh_tridiagonal(A2, B2[:m2-1], select='i', select_range=(0, 0)) if m2 > 1 else (None, np.ones((1, 1)))
+        est = max(float(B2[m2-1]*abs(U2[-1, 0])), 1e-13*sc)
+        psi = lanczos(eng, maxit=m2, seed=L2['seed'], small=0, _coef=U2[:, 0], v0=L2.get('v0'))
+        E, res = check(psi)
     return psi, E, res
 
 

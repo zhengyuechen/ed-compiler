@@ -1,0 +1,7 @@
+# The same block along J2 = 0, 0.05, ..., 1 (the ground-state column of Richter & Schulenburg's table is a subset),
+# one solve per point (the layout tables leave no room on one 80 GB card for the basis of a family scan at this size).
+lattice square a1=6,2 a2=-2,6
+couplings J1=1 J2=0.5
+sector Sz=0 k=0,0 irrep=A1 flip=+1
+scan J2=0:1:21 method=points
+solve engine=layout device=gpu tol=1e-11

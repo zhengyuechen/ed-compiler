@@ -10,12 +10,14 @@ R depends on M = N_up - N/2 (large sectors need few vectors): --R '0:8,1:4,2:2,9
 One JSON line per block is appended to --out; blocks already in that file are skipped (restart after a time limit).
 Recurrence per chain: u <- u + H v; alpha = <v|u>; u <- u - alpha v; beta = |u|; (v, u) <- (u/beta, -beta v).
 
+--alpha a: XXZ model, H = sum_shells J_s sum_bonds [S^z S^z + a (S^x S^x + S^y S^y)] (a = 1: Heisenberg; a < 1: Ising side).
+
 Usage: thermo_run.py <kind> <A1x,A1y,A2x,A2y> <J1[,J2,..]> --out file.jsonl [--NL 160] [--R spec] [--nup a:b]
-                     [--part i/n] [--device gpu|cpu] [--dense 2000] [--max-seconds S]"""
+                     [--part i/n] [--device gpu|cpu] [--dense 2000] [--max-seconds S] [--alpha 1]"""
 import sys, os, json, time, math, argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
-import edc_lattices as L, edc_hubbard_sym as hs, edc_sub
+import edc, edc_lattices as L, edc_hubbard_sym as hs, edc_sub
 
 ap = argparse.ArgumentParser()
 ap.add_argument('kind'); ap.add_argument('vectors'); ap.add_argument('J')
@@ -24,12 +26,19 @@ ap.add_argument('--R', default='0:8,1:4,2:2,9:8'); ap.add_argument('--nup', defa
 ap.add_argument('--part', default='0/1'); ap.add_argument('--device', default='gpu')
 ap.add_argument('--dense', type=int, default=2000); ap.add_argument('--max-seconds', type=float, default=1e18)
 ap.add_argument('--list', action='store_true', help='print the work list of this part and stop')
+ap.add_argument('--alpha', type=float, default=1.0)
 args = ap.parse_args()
 T_START = time.perf_counter()
 a = [int(v) for v in args.vectors.split(',')]; J = [float(v) for v in args.J.split(',')]
 NL, device = args.NL, args.device
 part, nparts = (int(v) for v in args.part.split('/'))
 cl = L.LatticeCluster(args.kind, (a[0], a[1]), (a[2], a[3])); model = cl.heisenberg(*J); N = cl.N
+if args.alpha != 1.0:
+    model = edc.SpinHalfModel(N)
+    for sh, Jv in enumerate(J, start=1):
+        if Jv:
+            for b0, b1 in cl.bonds(sh):
+                model.zz(b0, b1, Jv); model.exchange(b0, b1, Jv*args.alpha)
 assert N % 2 == 0, 'even N only (S_z = 0 sector with spin flip)'
 lo, hi = (int(v) for v in args.nup.split(':')) if args.nup else (N//2, N)
 assert N//2 <= lo <= hi <= N
@@ -199,6 +208,8 @@ for cost, nup, bi, (k, ir, fl, pops, mult) in mine:
     e = edc_sub.SubEngine(model, nup, cl, k, ir, fl, device=device, point_ops=pops)
     sync(); t1 = time.perf_counter()
     rec = dict(nup=nup, block=bi, k_over_pi=[v/math.pi for v in k], irrep=ir, flip=fl, mult=mult, dim=e.dim, J=J, N=N)
+    if args.alpha != 1.0:
+        rec['alpha'] = args.alpha
     if e.dim == 0:
         pass
     elif e.dim <= args.dense:
