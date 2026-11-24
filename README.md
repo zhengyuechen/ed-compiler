@@ -77,6 +77,28 @@ symmetry block of S_z = 0 is solved; the lowest level is the same and the block 
 | `bench/` | benchmark drivers (edc, XDiag, QuSpin), figure scripts |
 | `vendor/libomp` | OpenMP runtime used on macOS (Homebrew bottle 23.1.6) |
 
+## GPU DMRG on kagome cylinders
+
+Install the GPU dependencies with `python -m pip install '.[gpu]'` on a CUDA 12 system.
+From the repository root, run the fixed-rule GPU solver and its small-cylinder check:
+
+```sh
+OPENBLAS_NUM_THREADS=1 python bench/dmrg_gpu/check_small.py check.json gpu3
+OPENBLAS_NUM_THREADS=1 python bench/dmrg_gpu/bench60.py 1200 gpu3 30 0 energy.json
+```
+
+Use `gpu3s` to benchmark the optional block factorisation selector. The `edc` model-file
+DMRG command uses the CPU backend. The following commands profile CuPy allocations and
+measure magnetisation and bond energies on a five-ring YC8 cylinder:
+
+```sh
+python bench/dmrg_gpu/mem_profile.py 5 4 2400 28 3 mem.json
+python bench/kagome_gap/kg_run.py . 5 4 800 yc8.json sz=0,1
+```
+
+Memory profiling changes execution time. Use a separate run for timing.
+The experimental total-spin and momentum implementation is in `bench/dmrg_su2/`.
+
 ## Running
 
 macOS: Python 3.12 with numpy and scipy; clang from the Command Line Tools; the OpenMP runtime in `vendor/` is loaded
