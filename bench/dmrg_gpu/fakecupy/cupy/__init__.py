@@ -22,6 +22,9 @@ class ndarray(np.ndarray):
         r = getattr(ufunc, method)(*args, **kw)
         return tuple(_wrap(y) for y in r) if isinstance(r, tuple) else _wrap(r)
 
+    def get(self):                                                     # cupy.ndarray.get: a host copy
+        return np.array(self.view(np.ndarray), copy=True)
+
     def __setitem__(self, key, value):
         if isinstance(value, np.ndarray) and not isinstance(value, ndarray) and value.ndim > 0:
             raise TypeError('host array assigned into a device array')

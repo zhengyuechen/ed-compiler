@@ -97,6 +97,36 @@ python bench/kagome_gap/kg_run.py . 5 4 800 yc8.json sz=0,1
 ```
 
 Memory profiling changes execution time. Use a separate run for timing.
+
+### Saved states and further states of one sector
+
+`edc_dmrg_state` writes a DMRG state (every layer tensor with the labels and sector sizes of every bond) to one file
+and reads it back into the CPU engine or a GPU back end. `edc_dmrg_excited` finds further states of the same
+(S_z, momentum) sector as the lowest state of H + w sum |earlier state><earlier state|, with the earlier states taken
+from files or from engines in memory:
+
+```python
+import edc_dmrg as ed, edc_dmrg_state as st, edc_dmrg_excited as ex
+model = ed.Model(ed.kagome_cylinder(2, 3, tail=True))
+E0, eng, info = ed.ground_state(model, 256, nup=9, K=0)
+st.save_state(eng, "state0.npz", D=256)
+second = ex.excited(ed.DMRG)(model, 9, 0, seed=1)
+second.orthogonal_to("state0.npz", weight=4.0)
+for alpha in ed.ALPHAS:
+    second.sweep(256, alpha, 3e-5 if alpha > 0 else 1e-6)
+print(second.last["E"], second.last["overlaps"])      # <psi|H|psi> and the overlap with the stored state
+```
+
+The checks compare with exact diagonalisation on small cylinders: every state is written as a vector on the spins
+(`edc_dmrg_vector`) and measured with the Hamiltonian of the bond list. The first two run on a CPU; `gpu3r` selects the
+GPU back end with a record of every layer solve (`edc_dmrg_gpu3r`).
+
+```sh
+python test_dmrg_states.py
+python bench/dmrg_gpu/check_state.py host
+python bench/dmrg_gpu/check_excited.py 3 3 0 13 1 1000 3 4 host     # 24 spins, two lowest levels 0.00067 apart
+python bench/dmrg_gpu/check_excited.py 3 3 0 13 1 1000 3 4 gpu3r
+```
 The experimental total-spin and momentum implementation is in `bench/dmrg_su2/`.
 
 ## Running

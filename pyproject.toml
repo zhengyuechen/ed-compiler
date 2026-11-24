@@ -20,8 +20,8 @@ edc = "edc_cli:main"
 # against the edc*.py files.  vendor/ is installed as edc_vendor/: the OpenMP runtime that edc.py loads on macOS.
 [tool.setuptools]
 py-modules = [
-    "edc", "edc_cli", "edc_dmrg", "edc_dmrg_factor", "edc_dmrg_gpu", "edc_dmrg_gpu2", "edc_dmrg_gpu3", "edc_dmrg_gpu3s",
-    "edc_dmrg_gpu_stub", "edc_family", "edc_glayout", "edc_gpu", "edc_gpu_lean", "edc_hubbard", "edc_hubbard_gpu",
+    "edc", "edc_cli", "edc_dmrg", "edc_dmrg_factor", "edc_dmrg_gpu", "edc_dmrg_gpu2", "edc_dmrg_gpu3", "edc_dmrg_gpu3r",
+    "edc_dmrg_gpu3s", "edc_dmrg_gpu_stub", "edc_dmrg_excited", "edc_dmrg_state", "edc_dmrg_vector", "edc_family", "edc_glayout", "edc_gpu", "edc_gpu_lean", "edc_hubbard", "edc_hubbard_gpu",
     "edc_hubbard_sym", "edc_k", "edc_lattice", "edc_lattices", "edc_layout3", "edc_levels", "edc_measure", "edc_plan",
     "edc_rows", "edc_scan", "edc_sub",
 ]
