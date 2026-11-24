@@ -1,0 +1,5 @@
+# Kagome Heisenberg, 12 sites, the sector of the ground state (E0 = -5.444 875 216, Läuchli et al. 2011): the quick start of README.md
+lattice kagome a1=2,0 a2=0,2
+couplings J1=1
+sector Sz=0 k=0,0 irrep=X2 flip=+1
+solve device=cpu

@@ -22,8 +22,10 @@ from collections import defaultdict
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OMP_INC = os.path.join(HERE, 'vendor', 'libomp', 'include')
-OMP_DYLIB = os.path.join(HERE, 'vendor', 'libomp', 'lib', 'libomp.dylib')
+# the OpenMP runtime for macOS: vendor/libomp of a checkout, edc_vendor/libomp next to the modules after `pip install`
+OMP = next((d for d in (os.path.join(HERE, v, 'libomp') for v in ('vendor', 'edc_vendor')) if os.path.isdir(d)), os.path.join(HERE, 'vendor', 'libomp'))
+OMP_INC = os.path.join(OMP, 'include')
+OMP_DYLIB = os.path.join(OMP, 'lib', 'libomp.dylib')
 CACHE = os.environ.get('EDC_CACHE', os.path.join(os.path.expanduser('~'), '.cache', 'edc'))
 if sys.platform == 'darwin':
     # one shared OpenMP runtime for every generated library in this process

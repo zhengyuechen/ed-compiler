@@ -5,6 +5,56 @@ of the bond list (families of bonds that act as a few shift-and-mask operations 
 group and of the Hilbert space, emits specialised C/OpenMP or CUDA code at run time, compiles it and drives a Lanczos
 iteration with it.
 
+## Quick start
+
+Python 3.9 or later and a C compiler with OpenMP: clang from the Command Line Tools on macOS (`xcode-select --install`;
+the OpenMP runtime comes with this package), gcc on Linux.
+
+```bash
+git clone https://github.com/zhengyuechen/ed-compiler
+```
+
+```bash
+python -m pip install ./ed-compiler
+```
+
+This installs the command `edc`, which works from any directory. A model is a few lines of text:
+
+```bash
+cat > kagome12.edc <<'EOF'
+lattice kagome a1=2,0 a2=0,2
+couplings J1=1
+sector Sz=0 k=0,0 irrep=X2 flip=+1
+solve device=cpu
+EOF
+```
+
+```bash
+edc kagome12.edc
+```
+
+It prints one JSON line. The first run compiles the kernel (6 s on an Apple M2 Pro); later runs take it from
+`~/.cache/edc` (0.3 s):
+
+```json
+{"lattice": "kagome", "N": 12, "model": "heisenberg", "device": "cpu", "engine": "sub", "nup": 6, "k_over_pi": [0.0, 0.0], "irrep": "X2", "flip": 1, "dim": 10, "E": -5.4448752169718535, "iterations": 10, "seconds": 0.23}
+```
+
+| | |
+|---|---|
+| Lattice | kagome, 12 sites: 2 × 2 unit cells of 3 sites |
+| Boundary | periodic in both directions: a torus with periods 2 a1 and 2 a2 (a1, a2 at 60°) |
+| Hamiltonian | H = J1 Σ S_i · S_j over the 24 nearest-neighbour bonds, spin 1/2, J1 = 1 |
+| Sector | S_z = 0, momentum (0, 0), irrep X2 (−1 under the sixfold rotation, +1 under the mirror S0), even under spin flip: 10 states |
+| Reference | E0 = −5.444 875 216 — Läuchli, Sudan, Sørensen, PRB 83, 212401 (2011), Table 1, N = 12 |
+| Tolerance | \|E − E0\| < 1e-9, one unit of the last published digit; `seconds` and the last digits of `E` vary |
+
+The same number comes out of a dense diagonalisation of the 924 states with S_z = 0 that uses none of this code:
+−5.444 875 216 972 (`test_quickstart.py`, agreement to 1e-10). With `sector Sz=0 all` in place of the sector line every
+symmetry block of S_z = 0 is solved; the lowest level is the same and the block sizes add up to 924.
+
+`edc --help` prints the model language; `examples/` holds more models (square J1-J2, scans, Hubbard, DMRG on cylinders).
+
 ## Contents
 
 | File | What |

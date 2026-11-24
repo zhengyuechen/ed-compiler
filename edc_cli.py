@@ -538,5 +538,18 @@ def run(spec):
     return out
 
 
+def main(argv=None):
+    """Run a model file and print its result as JSON."""
+    args = sys.argv[1:] if argv is None else argv
+    if args in (['--help'], ['-h']):
+        print(__doc__.strip())
+        return 0
+    if len(args) != 1:
+        sys.exit('usage: edc model.edc')
+    with open(args[0]) as model_file:
+        print(json.dumps(run(parse(model_file.read()))))
+    return 0
+
+
 if __name__ == '__main__':
-    print(json.dumps(run(parse(open(sys.argv[1]).read()))))
+    sys.exit(main())

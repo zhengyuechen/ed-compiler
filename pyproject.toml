@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ed-compiler"
+version = "0.1.0"
+description = "An operator compiler for exact diagonalisation: models as terms on sites, generated C/OpenMP and CUDA kernels"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy"]
+
+[project.optional-dependencies]
+gpu = ["cupy-cuda12x[ctk]"]
+
+[project.scripts]
+edc = "edc_cli:main"
+
+# The modules stay where they are (python edc_cli.py model.edc works as before); test_quickstart.py checks this list
+# against the edc*.py files.  vendor/ is installed as edc_vendor/: the OpenMP runtime that edc.py loads on macOS.
+[tool.setuptools]
+py-modules = [
+    "edc", "edc_cli", "edc_dmrg", "edc_family", "edc_glayout",
+    "edc_gpu", "edc_gpu_lean", "edc_hubbard", "edc_hubbard_gpu", "edc_hubbard_sym",
+    "edc_k", "edc_lattice", "edc_lattices", "edc_layout3", "edc_levels",
+    "edc_measure", "edc_plan", "edc_rows", "edc_scan", "edc_sub",
+]
+packages = ["edc_vendor"]
+package-dir = { edc_vendor = "vendor" }
+
+[tool.setuptools.package-data]
+edc_vendor = ["libomp/include/*.h", "libomp/lib/libomp.dylib", "libomp/LICENSE.TXT", "libomp/README.md"]
