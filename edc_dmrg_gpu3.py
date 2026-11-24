@@ -41,6 +41,7 @@ def _pdev(p):
 
 class DMRGGPU3(e2.DMRGGPU2):
     version = 'gpu-v3'; factor = 'host'
+    product_cls = eg.Product
 
     def __init__(self, model, nup, K=0, D0=2, seed=0):
         super().__init__(model, nup, K, D0, seed); cp.random.seed(seed)
@@ -49,7 +50,7 @@ class DMRGGPU3(e2.DMRGGPU2):
     # ---- layer solve: as version 0 (edc_dmrg_gpu.DMRGGPU.solve), but the start comes from and the result stays on the device
     def solve(self, r, tol=1e-6, maxit=40):
         assert not self.host
-        t00 = time.perf_counter(); H = eg.Product(self, r, self.prof); n = H.n; t0 = time.perf_counter()
+        t00 = time.perf_counter(); H = self.product_cls(self, r, self.prof); n = H.n; t0 = time.perf_counter()
         v = self.M[r]/cp.linalg.norm(self.M[r])
         if self.noise > 0:
             xi = cp.random.standard_normal(n); v = v + (self.noise/float(cp.linalg.norm(xi)))*xi; v /= cp.linalg.norm(v)
@@ -84,7 +85,7 @@ class DMRGGPU3(e2.DMRGGPU2):
             return {}
         t = time.perf_counter(); keys = list(blocks); flat = cp.asnumpy(cp.concatenate([blocks[q].ravel() for q in keys])); out = {}; o = 0
         for q in keys:
-            m, n = blocks[q].shape; Us, s, Vh = np.linalg.svd(flat[o:o+m*n].reshape(m, n), full_matrices=False); o += m*n; out[q] = ('host', s, Us, Vh)
+            m, n = blocks[q].shape; Us, s, Vh = ed.svd(flat[o:o+m*n].reshape(m, n), full_matrices=False); o += m*n; out[q] = ('host', s, Us, Vh)
         self.blocks_host += len(keys); self._acc('mv_host_svd', t)
         return out
 
@@ -94,7 +95,7 @@ class DMRGGPU3(e2.DMRGGPU2):
             t = time.perf_counter(); f = tall_qr(A, cp, cp.asnumpy, cp.asarray)
             if f is None:
                 self._acc('mv_fallback', t); out.update(self._host_svds({q: A})); continue
-            t = self._acc('mv_gram_cholesky', t); Uc, s, Vh = np.linalg.svd(f[1]); self.blocks_dev += 1; self._acc('mv_small_svd', t)
+            t = self._acc('mv_gram_cholesky', t); Uc, s, Vh = ed.svd(f[1], full_matrices=True); self.blocks_dev += 1; self._acc('mv_small_svd', t)
             out[q] = ('devh', s, f[0], Uc, Vh)
         return out
 

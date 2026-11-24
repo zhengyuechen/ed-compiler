@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Several states of one (S_z, K) sector with the layer DMRG, state by state against exact diagonalisation on a small
-cylinder.  Host engine by default (no GPU needed); gpu3 / gpu3r for the device back end.
+cylinder.  Host engine by default (no GPU needed); gpu3, gpu3r, gpu3g or gpu3gr for a device back end.
 
-    check_excited.py Lx c tail(0|1) nup K D [states=3] [weight=4] [host|gpu3|gpu3r] [out.json]
+    check_excited.py Lx c tail(0|1) nup K D [states=3] [weight=4] [host|gpu3|gpu3r|gpu3g|gpu3gr] [out.json]
 
 State 0 is ordinary DMRG; state p is DMRG for H + w sum_{q<p} |psi_q><psi_q| (edc_dmrg_excited), each from its own
 random start.  Every state is then written as a vector on the spins (edc_dmrg_vector) and measured with the Hamiltonian
@@ -24,8 +24,14 @@ if where == 'host':
     base = ed.DMRG
 elif where == 'gpu3':
     import edc_dmrg_gpu3 as e3; base = e3.DMRGGPU3
-else:
+elif where == 'gpu3r':
     import edc_dmrg_gpu3r as e3r; base = e3r.DMRGGPU3r
+elif where == 'gpu3g':
+    from edc_dmrg_gpu3g import DMRGGPU3g as base
+elif where == 'gpu3gr':
+    from edc_dmrg_gpu3gr import DMRGGPU3gr as base
+else:
+    raise SystemExit(f'unknown engine {where}')
 cls = ex.excited(base); tol = 3e-5
 t = time.time(); w, V, H, proj = vec.exact_states(lat, nup, K, k=ns+3)
 print(f'{lat.name}, N = {N}, S_z = {nup-N/2:+.1f}, K = {K}, D = {D}, weight {wt}, engine {cls.version}')
@@ -59,6 +65,6 @@ for p in range(ns):
                               weights=we.tolist(), bond=max(eng.bond_sizes()), sweep_values=hist, seconds=time.time()-t))
     vs.append(v); engs.append(eng)
 G = np.abs(np.array([[np.vdot(a, b) for b in vs] for a in vs])); np.fill_diagonal(G, 0.0); print(f'largest overlap between two of the states: {G.max():.1e}')
-ok = all(s['exact_level'] == i for i, s in enumerate(out['states'])); print('levels in order 0, 1, 2, ...: ' + ('yes' if ok else 'NO: ' + str([s['exact_level'] for s in out['states']])))
+ok = all(abs(w[s['exact_level']] - w[i]) < 1e-9 for i, s in enumerate(out['states'])); print('exact levels in order (including degeneracies): ' + ('yes' if ok else 'NO: ' + str([s['exact_level'] for s in out['states']])))
 if outf:
     json.dump(out, open(outf, 'w'), indent=1)

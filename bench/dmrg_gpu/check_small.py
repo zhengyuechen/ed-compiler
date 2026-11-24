@@ -5,7 +5,7 @@
 2. YC6, two rings and a last layer (18 spins), nearest-neighbour Heisenberg: lowest singlet (lowest S_z = 0 level),
    lowest triplet (lowest S_z = 1 level) and their difference, in every momentum, against the product-basis ED;
    at D = 512 the bonds hold the whole space, at D = 64 and 128 they truncate.
-Usage: check_small.py [out.json] [gpu|gpu1|gpu1t|gpu2|gpu3|gpu3d|gpu3s]"""
+Usage: check_small.py [out.json] [gpu|gpu1|gpu1t|gpu2|gpu3|gpu3d|gpu3s|gpu3g]"""
 import sys, os, json, time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 import numpy as np, cupy as cp, edc_dmrg as ed, edc_dmrg_gpu as eg
@@ -18,8 +18,10 @@ if _w in ('gpu3', 'gpu3d'):
     import edc_dmrg_gpu3 as e3
 if _w == 'gpu3s':
     import edc_dmrg_gpu3s as e3s
+if _w == 'gpu3g':
+    import edc_dmrg_gpu3g as e3g
 CLS = {'gpu': eg.DMRGGPU, 'gpu1a': eg.DMRGGPU1, 'gpu1': eg.DMRGGPU1b, 'gpu1t': e2.DMRGGPU1t if _w == 'gpu1t' else None, 'gpu2': e2.DMRGGPU2 if _w == 'gpu2' else None,
-       'gpu3': e3.DMRGGPU3 if _w == 'gpu3' else None, 'gpu3d': e3.DMRGGPU3d if _w == 'gpu3d' else None, 'gpu3s': e3s.DMRGGPU3s if _w == 'gpu3s' else None}[_w]; out['version'] = CLS.version; print('back end', CLS.version)
+       'gpu3': e3.DMRGGPU3 if _w == 'gpu3' else None, 'gpu3d': e3.DMRGGPU3d if _w == 'gpu3d' else None, 'gpu3s': e3s.DMRGGPU3s if _w == 'gpu3s' else None, 'gpu3g': e3g.DMRGGPU3g if _w == 'gpu3g' else None}[_w]; out['version'] = CLS.version; print('back end', CLS.version)
 eng = eg.DMRGGPU(model, N//2, 0); eng.host = True; eng.sweep(48, 1e-2, 1e-6); eng.sweep(48, 1e-2, 1e-6); worst = 0.0; _p = lambda a: a.ctypes.data
 for r in range(eng.n):
     p = eng.plan[r]; n = p.size; v = rng.standard_normal(n); ref = np.zeros(n); U = np.empty(n); oU = np.empty(n)

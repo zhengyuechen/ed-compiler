@@ -110,6 +110,32 @@ def layer_sz(eng):
     return (np.diff(mleft) - np.array([len(y) for y in eng.model.lat.layers])/2.0).tolist()
 
 
+def install(eng, dims, tensors, centre, environments=True):
+    """Put a state into an engine: sector sizes of every bond, layer tensors (M layout, host or device arrays), its centre;
+    plans and (if asked) environments are rebuilt.  The labels of the bonds are the engine's own."""
+    n = eng.n; c = centre; model = eng.model
+    dev_env = getattr(eng, '_env_dev', False); dev_M = type(eng.M[0]) is not np.ndarray     # v3 keeps the tensors on the device
+    if dev_env or dev_M:
+        import cupy as cp
+    for r in range(n+1):
+        eng.bond[r].dims[:] = np.asarray(dims[r])
+    for r in range(n):
+        p = eng.plan[r] = ed.Plan(model, r, eng.bond[r], eng.bond[r+1])
+        assert tensors[r].size == p.size, f'tensor of layer {r}: {tensors[r].size} numbers, the labels give {p.size}'
+        eng.M[r] = cp.asarray(tensors[r], dtype=np.float64) if dev_M else np.ascontiguousarray(_host(tensors[r]), dtype=np.float64)
+    z = (lambda: cp.zeros(1)) if dev_env else (lambda: np.zeros(1))
+    eng.LH = [None]*(n+1); eng.GL = [None]*(n+1); eng.RH = [None]*(n+1); eng.GR = [None]*(n+1); eng.Q = [z() for _ in range(n+1)]; eng.P = [z() for _ in range(n+1)]
+    eng.LH[0] = z(); eng.GL[0] = z(); eng.RH[n] = z(); eng.GR[n] = z()
+    if hasattr(eng, '_dev'):
+        eng._dev = None
+    if environments:
+        for r in range(n-1, c, -1):
+            eng._grow_right(r)
+        for r in range(c):
+            eng._grow_left(r)
+    return eng
+
+
 def save_state(eng, path, **meta):
     """Write the state of eng to path (.npz).  meta: anything JSON can hold (energy, D, seed, start pattern, job ...)."""
     can = canonical(eng); c = can['centre']; assert c is not None, f'not a canonical state: left {max(can["left"]):.1e}, right {max(can["right"]):.1e}'
@@ -130,33 +156,19 @@ def read_head(path):
     return json.loads(str(np.load(path, allow_pickle=False)['head']))
 
 
-def load_state(path, model, cls=ed.DMRG, **kw):
+def load_state(path, model, cls=ed.DMRG, environments=True, **kw):
     """An engine of class cls holding the saved state: same tensors, same labels, environments rebuilt.  The head of the
     file is in eng.loaded; eng.loaded['centre'] is the centre layer (a sweep of the engine expects the centre at layer 0:
-    DMRG.sweep starts with a solve of layer 0 and needs the right environments, which are there only if centre == 0)."""
+    DMRG.sweep starts with a solve of layer 0 and needs the right environments, which are there only if centre == 0).
+    environments=False: tensors, labels and plans only (enough for measurements that contract the tensors themselves,
+    e.g. layer_sz or a total-spin measurement; no sweep, no energy)."""
     f = np.load(path if str(path).endswith('.npz') else str(path) + '.npz', allow_pickle=False); head = json.loads(str(f['head']))
     assert head['format'] == FORMAT, 'unknown file format'
     for key, val in (('N', model.lat.N), ('c', model.lat.c), ('mod', model.mod), ('Delta', model.Delta), ('lattice_hash', _lattice_hash(model))):
         assert head[key] == val, f'the file is for another model: {key} {head[key]} != {val}'
-    eng = cls(model, head['nup'], head['K'], **kw); n = eng.n; c = head['centre']
-    dev_env = getattr(eng, '_env_dev', False); dev_M = type(eng.M[0]) is not np.ndarray     # v3 keeps the tensors on the device
-    if dev_env or dev_M:
-        import cupy as cp
+    eng = cls(model, head['nup'], head['K'], **kw); n = eng.n
     for r in range(n+1):
-        b = eng.bond[r]; assert np.array_equal(b.m, f[f'm{r}']) and np.array_equal(b.k, f[f'k{r}']), f'labels of bond {r} differ from the file'
-        b.dims[:] = f[f'd{r}']
-    for r in range(n):
-        p = eng.plan[r] = ed.Plan(model, r, eng.bond[r], eng.bond[r+1]); M = np.ascontiguousarray(f[f'M{r}'], dtype=np.float64)
-        assert M.size == p.size, f'tensor of layer {r}: {M.size} numbers, the labels give {p.size}'
-        eng.M[r] = cp.asarray(M) if dev_M else M
-    z = (lambda: cp.zeros(1)) if dev_env else (lambda: np.zeros(1))
-    eng.LH = [None]*(n+1); eng.GL = [None]*(n+1); eng.RH = [None]*(n+1); eng.GR = [None]*(n+1); eng.Q = [z() for _ in range(n+1)]; eng.P = [z() for _ in range(n+1)]
-    eng.LH[0] = z(); eng.GL[0] = z(); eng.RH[n] = z(); eng.GR[n] = z()
-    if hasattr(eng, '_dev'):
-        eng._dev = None
-    for r in range(n-1, c, -1):
-        eng._grow_right(r)
-    for r in range(c):
-        eng._grow_left(r)
+        assert np.array_equal(eng.bond[r].m, f[f'm{r}']) and np.array_equal(eng.bond[r].k, f[f'k{r}']), f'labels of bond {r} differ from the file'
+    install(eng, [f[f'd{r}'] for r in range(n+1)], [f[f'M{r}'] for r in range(n)], head['centre'], environments)
     eng.loaded = head
     return eng

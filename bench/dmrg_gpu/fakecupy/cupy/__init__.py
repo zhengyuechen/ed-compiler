@@ -74,6 +74,7 @@ def __getattr__(name):
 class _Linalg:
     norm = staticmethod(_fn(np.linalg.norm, 'norm'))
     eigh = staticmethod(_fn(np.linalg.eigh, 'eigh'))
+    eigvalsh = staticmethod(_fn(np.linalg.eigvalsh, 'eigvalsh'))
     svd = staticmethod(_fn(np.linalg.svd, 'svd'))
     qr = staticmethod(_fn(np.linalg.qr, 'qr'))
 

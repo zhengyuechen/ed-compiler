@@ -2,7 +2,7 @@
 """The performance problem of the DMRG GPU benchmark: kagome YC6 cylinder with 7 rings, 60 spins, nearest-neighbour
 Heisenberg model (J = 1), lowest state of S_z = 0 (momentum 0 around the cylinder; S_z = 1 with `nup=31`).
 
-    bench60.py D [gpu|gpu1a|gpu1|gpu1t|gpu2|gpu3|gpu3d|gpu3s|host]      MEMHOOK=1: also the in-use peak of the cupy pool (not for timing) [nup] [K] [out.json] [tag]
+    bench60.py D [gpu|gpu1a|gpu1|gpu1t|gpu2|gpu3|gpu3d|gpu3s|gpu3g|host]      MEMHOOK=1: also the in-use peak of the cupy pool (not for timing) [nup] [K] [out.json] [tag]
 
 Prints and stores every sweep (energy, seconds, where the time went) and the summary the benchmark asks for:
 time of a full sweep at the final bond dimension, total time, time to reach each energy target, peak device memory
@@ -16,7 +16,7 @@ TARGETS = {'1e-3': REF+1e-3, '3e-4': REF+3e-4, '1e-4': REF+1e-4}       # energy 
 D = int(sys.argv[1]); where = sys.argv[2] if len(sys.argv) > 2 else 'gpu'; nup = int(sys.argv[3]) if len(sys.argv) > 3 else 30
 K = int(sys.argv[4]) if len(sys.argv) > 4 else 0; outf = sys.argv[5] if len(sys.argv) > 5 else None; tag = sys.argv[6] if len(sys.argv) > 6 else ''
 lat = ed.kagome_cylinder(7, 3); model = ed.Model(lat); assert lat.N == 60
-if where in ('gpu', 'gpu1a', 'gpu1', 'gpu1t', 'gpu2', 'gpu3', 'gpu3d', 'gpu3s'):
+if where in ('gpu', 'gpu1a', 'gpu1', 'gpu1t', 'gpu2', 'gpu3', 'gpu3d', 'gpu3s', 'gpu3g'):
     import cupy as cp, edc_dmrg_gpu as eg
     if where in ('gpu1t', 'gpu2'):
         import edc_dmrg_gpu2 as e2
@@ -24,8 +24,11 @@ if where in ('gpu', 'gpu1a', 'gpu1', 'gpu1t', 'gpu2', 'gpu3', 'gpu3d', 'gpu3s'):
         import edc_dmrg_gpu3 as e3
     if where == 'gpu3s':
         import edc_dmrg_gpu3s as e3s
+    if where == 'gpu3g':
+        import edc_dmrg_gpu3g as e3g
     cls = {'gpu': eg.DMRGGPU, 'gpu1a': eg.DMRGGPU1, 'gpu1': eg.DMRGGPU1b, 'gpu1t': e2.DMRGGPU1t if where == 'gpu1t' else None, 'gpu2': e2.DMRGGPU2 if where == 'gpu2' else None,
-           'gpu3': e3.DMRGGPU3 if where == 'gpu3' else None, 'gpu3d': e3.DMRGGPU3d if where == 'gpu3d' else None, 'gpu3s': e3s.DMRGGPU3s if where == 'gpu3s' else None}[where]; version = cls.version; dev = cp.cuda.runtime.getDeviceProperties(0)['name'].decode(); where = 'gpu'
+           'gpu3': e3.DMRGGPU3 if where == 'gpu3' else None, 'gpu3d': e3.DMRGGPU3d if where == 'gpu3d' else None, 'gpu3s': e3s.DMRGGPU3s if where == 'gpu3s' else None,
+           'gpu3g': e3g.DMRGGPU3g if where == 'gpu3g' else None}[where]; version = cls.version; dev = cp.cuda.runtime.getDeviceProperties(0)['name'].decode(); where = 'gpu'
 else:
     import edc_dmrg_gpu_stub as eg                                     # host run of the same schedule (no cupy needed)
     cls = ed.DMRG; version = 'host'; dev = 'cpu'

@@ -37,8 +37,8 @@ def _slabs(p):
 class Stored:
     """One state to stay orthogonal to: its tensors (M layout, on the host or the device of the engine), its plans, its
     overlap environments with the engine's current state."""
-    def __init__(self, eng, source, weight, xp):
-        self.w = float(weight); n = eng.n; self.xp = xp
+    def __init__(self, eng, source, weight, xp, host=False):
+        self.w = float(weight); n = eng.n; self.xp = xp; self.host = host     # host=True: tensors kept in host memory, one layer at a time on the device
         if isinstance(source, str):
             f = np.load(source if source.endswith('.npz') else source + '.npz', allow_pickle=False); head = st.json.loads(str(f['head'])); md = eng.model
             for key, val in (('N', md.lat.N), ('c', md.lat.c), ('mod', md.mod), ('Delta', md.Delta), ('lattice_hash', st._lattice_hash(md)),
@@ -58,14 +58,14 @@ class Stored:
         self.plan = [ed.Plan(eng.model, r, self.bond[r], self.bond[r+1]) for r in range(n)]
         for r in range(n):
             assert T[r].size == self.plan[r].size
-        self.M = [xp.asarray(t) for t in T]; self.OL = [None]*(n+1); self.OR = [None]*(n+1)
+        self.M = [np.ascontiguousarray(t) if host else xp.asarray(t) for t in T]; self.OL = [None]*(n+1); self.OR = [None]*(n+1)
         self.OL[0] = [xp.ones((int(a), int(b))) if a and b else xp.zeros((int(a), int(b))) for a, b in zip(eng.bond[0].dims, self.bond[0].dims)]
         self.OR[n] = [xp.ones((int(a), int(b))) if a and b else xp.zeros((int(a), int(b))) for a, b in zip(eng.bond[n].dims, self.bond[n].dims)]
 
     def _blocks(self, p, M, p0, r):
         """Pairs (A, B, i, j, slab) over the slabs present in both states: A = M_i[:, slab] of the current tensor
         (D_i x D_j), B = M0_i[:, slab] of the stored one (D0_i x D0_j)."""
-        M0 = self.M[r]; s0 = {(i, s): (c0, w) for i, s, j, c0, w in _slabs(p0)}
+        M0 = self.xp.asarray(self.M[r]) if self.host else self.M[r]; s0 = {(i, s): (c0, w) for i, s, j, c0, w in _slabs(p0)}
         for i, s, j, c0, w in _slabs(p):
             q = s0.get((i, s))
             if q is None or not w or not q[1]:
@@ -95,10 +95,16 @@ class Stored:
 _CACHE = {}
 
 
-def excited(base):
-    """The class `base` (edc_dmrg.DMRG or a GPU back end with the tensors on the device: v3, v3r) with the penalty terms."""
-    if base in _CACHE:
-        return _CACHE[base]
+def excited(base, maxit=40, host_stored=False):
+    """The class `base` (edc_dmrg.DMRG or a GPU back end with the tensors on the device: v3, v3r) with the penalty terms.
+    maxit: largest number of Krylov vectors per layer solve (40 as in the engine; a smaller cap lowers the peak device
+    memory, 40 vectors of the largest tensor dominate it, but more solves then end at the cap).
+    host_stored: keep the tensors of the stored states in host memory and move one layer at a time to the device when an
+    overlap environment or the stored state at the centre is formed (saves the device memory of the stored states, about
+    one state per orthogonality term, for one transfer of a layer tensor per use).  Results are the same."""
+    key = (base, maxit, host_stored)
+    if key in _CACHE:
+        return _CACHE[key]
     device = hasattr(base, 'version') and base.version.startswith('gpu')
 
     class Excited(base):
@@ -117,7 +123,7 @@ def excited(base):
         def orthogonal_to(self, source, weight):
             """Add a state to stay orthogonal to.  Call with the centre at layer 0 (a new engine, or after a sweep)."""
             assert st.canonical(self)['centre'] == 0, 'call orthogonal_to with the centre at layer 0'
-            s = Stored(self, source, weight, self._xp)
+            s = Stored(self, source, weight, self._xp, host=self.host_stored)
             for r in range(self.n-1, 0, -1):
                 s.grow_right(self, r, self.M[r])
             self.prev.append(s)
@@ -143,27 +149,30 @@ def excited(base):
             self.last = dict(layer=r, E_penalised=E, E=E - sum(w*o*o for (w, phi), o in zip(pens, ov)), overlaps=ov)
 
         if device:
-            def solve(self, r, tol=1e-6, maxit=40):
+            def solve(self, r, tol=1e-6, maxit=None):
+                maxit = self.maxit if maxit is None else maxit
                 if not self.prev:
                     return super().solve(r, tol, maxit)
-                import edc_dmrg_gpu as eg
-                pens = [(s.w, s.phi(self, r)) for s in self.prev]; orig = eg.Product
+                pens = [(s.w, s.phi(self, r)) for s in self.prev]
+                product_cls = self.product_cls
 
-                class Penalised(orig):                                 # the product of the layer solve, plus w phi (phi . v)
-                    def apply(self_, v):
-                        out = orig.apply(self_, v)
-                        for w, phi in pens:
-                            out += (w*float(phi @ v))*phi
+                class Penalised(product_cls):
+                    def apply(product, v):
+                        out = super().apply(v)
+                        for weight, phi in pens:
+                            out += (weight * float(phi @ v)) * phi
                         return out
-                eg.Product = Penalised
+
+                self.product_cls = Penalised
                 try:
                     E = super().solve(r, tol, maxit)
                 finally:
-                    eg.Product = orig
+                    self.product_cls = product_cls
                 self._after(r, E, pens)
                 return E
         else:
-            def solve(self, r, tol=1e-6, maxit=40):                    # edc_dmrg.DMRG.solve with the penalty in the product
+            def solve(self, r, tol=1e-6, maxit=None):
+                maxit = self.maxit if maxit is None else maxit                    # edc_dmrg.DMRG.solve with the penalty in the product
                 if not self.prev:
                     return super().solve(r, tol, maxit)
                 import time
@@ -179,25 +188,25 @@ def excited(base):
                 t0 = time.perf_counter(); v = self.M[r]/np.linalg.norm(self.M[r])
                 if self.noise > 0:
                     xi = self.rng.standard_normal(n); v = v + (self.noise/np.linalg.norm(xi))*xi; v /= np.linalg.norm(v)
-                V = [v]; al = []; be = []; E = None; y = np.array([1.0])
-                for it in range(min(maxit, n)):
-                    w = mv(V[-1]); a = float(V[-1] @ w); al.append(a)
-                    w -= a*V[-1]
+                # as edc_dmrg.DMRG.solve: Krylov vectors as rows of one array, re-orthogonalisation w -= (V w) V
+                m = min(maxit, n); V = np.empty((m, n)); V[0] = v; al = []; be = []; E = None; y = np.array([1.0]); k = 1
+                for it in range(m):
+                    w = mv(V[it]); a = float(V[it] @ w); al.append(a)
+                    w -= a*V[it]
                     if be:
-                        w -= be[-1]*V[-2]
-                    for u in V:
-                        w -= (u @ w)*u
+                        w -= be[-1]*V[it-1]
+                    w -= (V[:k] @ w) @ V[:k]
                     b = float(np.linalg.norm(w))
                     ev, Sv = np.linalg.eigh(np.diag(al) + np.diag(be, 1) + np.diag(be, -1)); E = float(ev[0]); y = Sv[:, 0]
-                    if b*abs(y[-1]) < tol*max(1.0, abs(E)) or b < 1e-13 or len(V) == n:
+                    if b*abs(y[-1]) < tol*max(1.0, abs(E)) or b < 1e-13 or k == n or k == m:
                         break
-                    be.append(b); V.append(w/b)
-                x = sum(c*u for c, u in zip(y, V)); self.M[r] = x/np.linalg.norm(x)
+                    be.append(b); V[k] = w/b; k += 1
+                x = y[:k] @ V[:k]; self.M[r] = x/np.linalg.norm(x)
                 self.stats['solves'] += 1; self.stats['t_products'] += time.perf_counter()-t0
                 self._after(r, E, pens)
                 return E
 
-    Excited.__name__ = f'Excited_{base.__name__}'; _CACHE[base] = Excited
+    Excited.__name__ = f'Excited_{base.__name__}'; Excited.maxit = maxit; Excited.host_stored = host_stored; _CACHE[key] = Excited
     return Excited
 
 

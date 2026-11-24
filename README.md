@@ -127,7 +127,19 @@ python bench/dmrg_gpu/check_state.py host
 python bench/dmrg_gpu/check_excited.py 3 3 0 13 1 1000 3 4 host     # 24 spins, two lowest levels 0.00067 apart
 python bench/dmrg_gpu/check_excited.py 3 3 0 13 1 1000 3 4 gpu3r
 ```
-The experimental total-spin and momentum implementation is in `bench/dmrg_su2/`.
+Use `gpu3g` with `bench/dmrg_gpu/bench60.py` to run grouped cuBLAS products.
+`edc_dmrg_gpu3gr.DMRGGPU3gr` also records each local solve and releases unused CuPy pool blocks after each sweep.
+For orthogonal-state runs, `excited(base, host_stored=True)` keeps reference tensors on the host and transfers them one layer at a time.
+
+`edc_dmrg_mirror` exchanges the ends of compatible cylinders. `edc_dmrg_combine` builds the overlap and Hamiltonian matrices of saved states and computes the Ritz energies in their span. Run the CPU checks with
+
+```bash
+python test_dmrg_mirror.py
+python test_dmrg_grouped_states.py
+python bench/dmrg_gpu/ritz_check.py host
+```
+
+The experimental total-spin and momentum implementation is in `bench/dmrg_su2/`. Run `python bench/dmrg_su2/su2_gemm_check.py` to check the chained BLAS contractions against exact energies.
 
 ## Running
 

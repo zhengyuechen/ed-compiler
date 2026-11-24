@@ -722,6 +722,15 @@ def _p(a):
     return a.ctypes.data
 
 
+def svd(A, full_matrices=False):
+    """Fall back to LAPACK gesvd if the divide-and-conquer SVD fails to converge."""
+    try:
+        return np.linalg.svd(A, full_matrices=full_matrices)
+    except np.linalg.LinAlgError:
+        import scipy.linalg as _sl
+        return _sl.svd(A, full_matrices=full_matrices, lapack_driver='gesvd')
+
+
 class DMRG:
     def __init__(self, model, nup, K=0, D0=2, seed=0):
         self.model = model; self.n = n = model.n; self.lib, self.compile_time = library(model); self.rng = rng = np.random.default_rng(seed)
@@ -781,20 +790,20 @@ class DMRG:
         t0 = time.perf_counter(); v = self.M[r]/np.linalg.norm(self.M[r])
         if self.noise > 0:                                            # a start that is an exact eigenvector cannot leave its symmetry sector
             xi = self.rng.standard_normal(n); v = v + (self.noise/np.linalg.norm(xi))*xi; v /= np.linalg.norm(v)
-        V = [v]; al = []; be = []; E = None; y = np.array([1.0])
-        for it in range(min(maxit, n)):
-            w = mv(V[-1]); a = float(V[-1] @ w); al.append(a)
-            w -= a*V[-1]
+        # Krylov vectors as the rows of one array; full re-orthogonalisation as two matrix-vector products, w -= (V w) V
+        m = min(maxit, n); V = np.empty((m, n)); V[0] = v; al = []; be = []; E = None; y = np.array([1.0]); k = 1
+        for it in range(m):
+            w = mv(V[it]); a = float(V[it] @ w); al.append(a)
+            w -= a*V[it]
             if be:
-                w -= be[-1]*V[-2]
-            for u in V:
-                w -= (u @ w)*u
+                w -= be[-1]*V[it-1]
+            w -= (V[:k] @ w) @ V[:k]
             b = float(np.linalg.norm(w))
             ev, Sv = np.linalg.eigh(np.diag(al) + np.diag(be, 1) + np.diag(be, -1)); E = float(ev[0]); y = Sv[:, 0]
-            if b*abs(y[-1]) < tol*max(1.0, abs(E)) or b < 1e-13 or len(V) == n:
+            if b*abs(y[-1]) < tol*max(1.0, abs(E)) or b < 1e-13 or k == n or k == m:
                 break
-            be.append(b); V.append(w/b)
-        x = sum(c*u for c, u in zip(y, V)); self.M[r] = x/np.linalg.norm(x)
+            be.append(b); V[k] = w/b; k += 1
+        x = y[:k] @ V[:k]; self.M[r] = x/np.linalg.norm(x)
         self.stats['solves'] += 1; self.stats['t_products'] += time.perf_counter()-t0
         return E
 
@@ -824,7 +833,7 @@ class DMRG:
             if kv[j]:
                 B = E[eoff[j]:eoff[j+1]].reshape(p.R[j], kv[j])/math.sqrt(kv[j]) + (self.random/math.sqrt(p.R[j]))*self.rng.standard_normal((p.R[j], kv[j]))
                 A = np.concatenate([A, alpha*B], axis=1)
-            res[j] = np.linalg.svd(A, full_matrices=False)
+            res[j] = svd(A, full_matrices=False)
         keep = self._keep({j: s for j, (_, s, _) in res.items()}, Dmax, cutoff)
         pn = self.plan[r+1]; Mn = self.M[r+1]; old = p.DR.copy(); new = np.zeros_like(old)
         for j, k in keep.items():
@@ -857,7 +866,7 @@ class DMRG:
             if kv[i]:
                 B = E[eoff[i]:eoff[i+1]].reshape(kv[i], p.C[i])/math.sqrt(kv[i]) + (self.random/math.sqrt(p.C[i]))*self.rng.standard_normal((kv[i], p.C[i]))
                 A = np.concatenate([A, alpha*B], axis=0)
-            res[i] = np.linalg.svd(A, full_matrices=False)
+            res[i] = svd(A, full_matrices=False)
         keep = self._keep({i: s for i, (_, s, _) in res.items()}, Dmax, cutoff)
         pp = self.plan[r-1]; Up = np.empty(pp.size); lib.m2u(pp.ref, _p(self.M[r-1]), _p(Up)); old = p.DL.copy(); new = np.zeros_like(old)
         for i, k in keep.items():

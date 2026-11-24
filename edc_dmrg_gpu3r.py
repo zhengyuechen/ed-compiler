@@ -26,7 +26,7 @@ class DMRGGPU3r(e3.DMRGGPU3):
 
     def solve(self, r, tol=1e-6, maxit=40):
         assert not self.host
-        t00 = time.perf_counter(); H = eg.Product(self, r, self.prof); n = H.n; t0 = time.perf_counter()
+        t00 = time.perf_counter(); H = self.product_cls(self, r, self.prof); n = H.n; t0 = time.perf_counter()
         v = self.M[r]/cp.linalg.norm(self.M[r])
         if self.noise > 0:
             xi = cp.random.standard_normal(n); v = v + (self.noise/float(cp.linalg.norm(xi)))*xi; v /= cp.linalg.norm(v)
