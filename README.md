@@ -5,6 +5,10 @@ of the bond list (families of bonds that act as a few shift-and-mask operations 
 group and of the Hilbert space, emits specialised C/OpenMP or CUDA code at run time, compiles it and drives a Lanczos
 iteration with it.
 
+## Changing the engine
+
+Read the [contributor guide](AGENTS.md) before modifying a solver. It maps the CLI and benchmark drivers to the existing CPU/GPU implementations and the checks used to verify them. The [changelog](CHANGELOG.md) records changes to solver behavior and defaults.
+
 ## Quick start
 
 Python 3.9 or later and a C compiler with OpenMP: clang from the Command Line Tools on macOS (`xcode-select --install`;
