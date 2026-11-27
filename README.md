@@ -22,7 +22,12 @@ git clone https://github.com/zhengyuechen/ed-compiler
 python -m pip install ./ed-compiler
 ```
 
-This installs the command `edc`, which works from any directory. A model is a few lines of text:
+This installs the command `edc`, which works from any directory. `check_package.py` checks what a user gets rather than
+what is in the checkout — `py-modules` against the `edc*.py` files in both directions, then every declared module
+imported from a directory that holds nothing else, so a module that needs a sibling the manifest does not ship fails
+here. With `--installed` it does the same to the installed package. Twenty-four of the thirty-four modules import
+without CUDA; the other ten are the GPU engines and need the `[gpu]` extra below (their import raises
+`ModuleNotFoundError: cupy`, which the check reports as GPU-only rather than as a failure). A model is a few lines of text:
 
 ```bash
 cat > kagome12.edc <<'EOF'
